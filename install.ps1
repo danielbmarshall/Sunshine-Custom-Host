@@ -1,5 +1,5 @@
 # ==============================================================================
-# SUNSHINE HOST BUILDER (FIXED COMPATIBILITY)
+# SUNSHINE HOST BUILDER (FINAL GOLD MASTER)
 # ==============================================================================
 # Run this from an Administrator PowerShell terminal.
 
@@ -46,49 +46,39 @@ if (-not (Test-Path $GlobalConfig.ToolsDir)) {
 }
 
 # --- SECURITY HARDENING (ACLs) ---
-# FIXED: Using [Class]::new() syntax for PowerShell 5.1 compatibility
 Write-Host "Securing $($GlobalConfig.ToolsDir)..." -ForegroundColor Cyan
-
 try {
     $acl  = Get-Acl $GlobalConfig.ToolsDir
     $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    
-    # Disable inheritance
-    $acl.SetAccessRuleProtection($true, $false) 
+    $acl.SetAccessRuleProtection($true, $false) # Disable inheritance
 
-    # Create rules using static method (PS 5.1 compatible)
+    # Allow SYSTEM, Current User, and Administrators only
     $rules = @(
         [System.Security.AccessControl.FileSystemAccessRule]::new("SYSTEM","FullControl","ContainerInherit,ObjectInherit","None","Allow"),
         [System.Security.AccessControl.FileSystemAccessRule]::new($user,"FullControl","ContainerInherit,ObjectInherit","None","Allow"),
         [System.Security.AccessControl.FileSystemAccessRule]::new("Administrators","FullControl","ContainerInherit,ObjectInherit","None","Allow")
     )
-
     foreach ($r in $rules) { $acl.AddAccessRule($r) }
     Set-Acl $GlobalConfig.ToolsDir $acl
 }
-catch {
-    Write-Warning "ACL hardening failed. Using default permissions. Error: $_"
-}
+catch { Write-Warning "ACL hardening failed. Using default permissions." }
 
 # --- DEPENDENCY INSTALLATION ---
 
 function Install-WingetApp {
     param($Id)
     Write-Host "Checking $Id..." -ForegroundColor Yellow
-    
-    # FIXED: Don't treat "No upgrade found" as a fatal error
     $args = "install --id $Id -e --silent --accept-package-agreements --accept-source-agreements"
     $proc = Start-Process -FilePath "winget" -ArgumentList $args -Wait -NoNewWindow -PassThru
-    
     if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne -1978334967) { 
-        # -1978334967 is often "No update available"
-        Write-Warning "Winget returned exit code $($proc.ExitCode) for $Id. If it's already installed, you can ignore this."
+        Write-Warning "Winget code $($proc.ExitCode) for $Id (Ignore if already installed)."
     }
 }
 
-if (-not (Get-Service "Sunshine Service" -ErrorAction SilentlyContinue)) { Install-WingetApp "LizardByte.Sunshine" }
+# Check for Service Name OR Display Name to be robust
+$sunshineSvc = Get-Service | Where-Object { $_.Name -eq 'SunshineService' -or $_.DisplayName -eq 'Sunshine Service' }
+if (-not $sunshineSvc) { Install-WingetApp "LizardByte.Sunshine" }
 
-# Relaxed Playnite check: check default path AND typical x86 path
 if (-not (Test-Path "C:\Program Files\Playnite\Playnite.DesktopApp.exe") -and -not (Test-Path "C:\Program Files (x86)\Playnite\Playnite.DesktopApp.exe")) { 
     Install-WingetApp "Playnite.Playnite" 
 }
@@ -104,7 +94,6 @@ $Downloads = @(
 foreach ($tool in $Downloads) {
     $zipPath = "$($GlobalConfig.ToolsDir)\$($tool.Name).zip"
     $skip = $false
-    
     switch ($tool.Name) {
         "WinDisplayMgr" { if (Test-Path "$($GlobalConfig.ToolsDir)\WindowsDisplayManager") { $skip = $true } }
         default         { if (Test-Path "$($GlobalConfig.ToolsDir)\$($tool.Name).exe")     { $skip = $true } }
@@ -117,20 +106,83 @@ foreach ($tool in $Downloads) {
             Invoke-WebRequest -Uri $tool.Url -OutFile $zipPath -UseBasicParsing
             Expand-Archive -Path $zipPath -DestinationPath $GlobalConfig.ToolsDir -Force
             Remove-Item $zipPath -Force
-            
             if ($tool.Name -eq "WinDisplayMgr") {
                 Rename-Item "$($GlobalConfig.ToolsDir)\WindowsDisplayManager-master" "$($GlobalConfig.ToolsDir)\WindowsDisplayManager" -ErrorAction SilentlyContinue
             }
-        }
-        catch {
-            Write-Error "Failed to download $($tool.Name): $_"
-        }
+        } catch { Write-Error "Failed to download $($tool.Name): $_" }
     }
 }
 
-# --- CONFIG GENERATION (AdvancedRun) ---
+# --- VIRTUAL MONITOR SCRIPTS (Dynamic Generation) ---
+# NOTE: The logic below defaults to "\\.\DISPLAY5" as the physical monitor.
+# If you change ports or GPUs, you must update the "SetPrimary" line below.
+
+$SetupScript = @"
+`$LogPath = "$($GlobalConfig.ToolsDir)\sunvdm_log.txt"
+Start-Transcript -Path `$LogPath -Append
+`$ScriptPath = "$($GlobalConfig.ToolsDir)"
+
+# 1. Save Config
+& "`$ScriptPath\MultiMonitorTool.exe" /SaveConfig "`$ScriptPath\monitor_config.cfg"
+
+# 2. Enable VDD (Idd or MTT)
+Write-Host "Enabling VDD..."
+Get-PnpDevice | Where-Object { (`$_.FriendlyName -like "*IddSampleDriver*" -or `$_.FriendlyName -like "*IddMonitor*") -and `$_.Status -eq "Error" } | Enable-PnpDevice -Confirm:`$false
+
+# 3. Wait for VDD
+Write-Host "Waiting for VDD..."
+for (`$i=0; `$i -lt 10; `$i++) {
+    & "`$ScriptPath\MultiMonitorTool.exe" /scomma "`$ScriptPath\monitors.csv"
+    `$monitors = Import-Csv "`$ScriptPath\monitors.csv"
+    `$virtual_mon = `$monitors | Where-Object { `$_.Name -match "VDD" -or `$_.MonitorID -match "MTT" }
+    if (`$virtual_mon) { break }
+    Start-Sleep -Milliseconds 500
+}
+
+if (`$virtual_mon) {
+    # 4. Set VDD Primary
+    Write-Host "Activating VDD (`$(`$virtual_mon.Name))..."
+    & "`$ScriptPath\MultiMonitorTool.exe" /SetPrimary `$(`$virtual_mon.Name) 
+    
+    # 5. Disable others
+    foreach (`$m in `$monitors) {
+        if (`$m.Name -ne `$virtual_mon.Name) {
+            & "`$ScriptPath\MultiMonitorTool.exe" /Disable `$(`$m.Name)
+        }
+    }
+
+    # 6. Set Resolution (4K 60Hz)
+    Start-Sleep -Milliseconds 500
+    & "`$ScriptPath\WindowsDisplayManager\WindowsDisplayManager.exe" set-mode -d 0 -w 3840 -h 2160 -r 60
+}
+Stop-Transcript
+"@
+Write-Config "$($GlobalConfig.ToolsDir)\setup_sunvdm.ps1" $SetupScript
+
+$TeardownScript = @"
+`$LogPath = "$($GlobalConfig.ToolsDir)\sunvdm_log.txt"
+Start-Transcript -Path `$LogPath -Append
+`$ScriptPath = "$($GlobalConfig.ToolsDir)"
+
+# Restore Primary (Targeting DISPLAY5 - Your 4K Monitor)
+Write-Host "Restoring Physical Monitor..."
+& "`$ScriptPath\MultiMonitorTool.exe" /SetPrimary \\.\DISPLAY5
+& "`$ScriptPath\MultiMonitorTool.exe" /LoadConfig "`$ScriptPath\monitor_config.cfg"
+
+# Disable VDD
+Get-PnpDevice | Where-Object { (`$_.FriendlyName -like "*IddSampleDriver*" -or `$_.FriendlyName -like "*IddMonitor*") -and `$_.Status -eq "OK" } | Disable-PnpDevice -Confirm:`$false
+
+Stop-Transcript
+"@
+Write-Config "$($GlobalConfig.ToolsDir)\teardown_sunvdm.ps1" $TeardownScript
+
+
+# --- APP LAUNCHER CONFIGURATION ---
+# Includes Setup/Teardown to ensure launch_setup.bat and launch_teardown.bat are generated
 
 $Apps = @{
+    "setup"    = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$($GlobalConfig.ToolsDir)\setup_sunvdm.ps1`"|$($GlobalConfig.ToolsDir)|3|0|1"
+    "teardown" = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$($GlobalConfig.ToolsDir)\teardown_sunvdm.ps1`"|$($GlobalConfig.ToolsDir)|3|0|1"
     "steam"    = "C:\Program Files (x86)\Steam\steam.exe|-start steam://open/bigpicture|C:\Program Files (x86)\Steam|1|3|0"
     "playnite" = "C:\Program Files\Playnite\Playnite.DesktopApp.exe|--startfullscreen|C:\Program Files\Playnite|1|3|0"
     "xbox"     = "explorer.exe|shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App|C:\|1|3|0"
@@ -144,11 +196,13 @@ $Apps = @{
 foreach ($key in $Apps.Keys) {
     $parts = $Apps[$key].Split("|")
     if ($parts.Count -lt 6) { continue }
-
+    
+    $cfgName = "cfg_$key.cfg"
     $cfgContent = "[General]`r`nExeFilename=$($parts[0])`r`nCommandLine=$($parts[1])`r`nStartDirectory=$($parts[2])`r`nRunAs=$($parts[3])`r`nWindowState=$($parts[4])`r`nWaitProcess=$($parts[5])`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nParseVarInsideCmdLine=1"
-    Write-Config "$($GlobalConfig.ToolsDir)\cfg_$key.cfg" $cfgContent
+    Write-Config "$($GlobalConfig.ToolsDir)\$cfgName" $cfgContent
 
-    $batContent = "@echo off`r`n`"$($GlobalConfig.ToolsDir)\AdvancedRun.exe`" /Run `"$($GlobalConfig.ToolsDir)\cfg_$key.cfg`""
+    # Generate: launch_steam.bat, launch_setup.bat, etc.
+    $batContent = "@echo off`r`n`"$($GlobalConfig.ToolsDir)\AdvancedRun.exe`" /Run `"$($GlobalConfig.ToolsDir)\$cfgName`""
     Write-Config "$($GlobalConfig.ToolsDir)\launch_$key.bat" $batContent
 }
 
@@ -165,6 +219,7 @@ foreach ($key in $Covers.Keys) {
     }
 }
 
+# apps.json uses the generated launch_*.bat files
 $appsContent = @'
 {
   "env": {},
@@ -183,6 +238,7 @@ $appsContent = @'
 '@
 Write-Config "$($GlobalConfig.SunshineConfig)\apps.json" $appsContent
 
+# sunshine.conf uses launch_setup.bat and launch_teardown.bat
 $confContent = 'global_prep_cmd = [{"do":"C:\\Sunshine-Tools\\launch_setup.bat","undo":"C:\\Sunshine-Tools\\launch_teardown.bat"}]'
 Write-Config "$($GlobalConfig.SunshineConfig)\sunshine.conf" $confContent
 
