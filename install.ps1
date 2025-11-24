@@ -1,6 +1,6 @@
 # ============================================================================
-#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER
-#  Installs: Sunshine, Playnite, Virtual Display Driver
+#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (FIXED)
+#  Installs: Sunshine, Playnite, Virtual Display Driver (Updated URL)
 #  Configures: Hardened MST-Aware Scripts, AdvancedRun, Custom Apps
 # ============================================================================
 $ErrorActionPreference = "Stop"
@@ -16,14 +16,13 @@ if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]:
 Write-Host ">>> STARTING UNIFIED INSTALLATION..." -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# PHASE 1: CORE SOFTWARE INSTALLATION (Winget / Manual)
+# PHASE 1: CORE SOFTWARE INSTALLATION
 # ---------------------------------------------------------------------------
 
 # 1. SUNSHINE
 if (-not (Get-Service "Sunshine Service" -ErrorAction SilentlyContinue)) {
     Write-Host "Installing Sunshine..." -ForegroundColor Yellow
     winget install --id LizardByte.Sunshine -e --silent --accept-package-agreements --accept-source-agreements
-    # Wait for service to register
     Start-Sleep -Seconds 5
 } else {
     Write-Host "Sunshine is already installed." -ForegroundColor Green
@@ -37,40 +36,47 @@ if (-not (Test-Path "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe")) {
     Write-Host "Playnite is already installed." -ForegroundColor Green
 }
 
-# 3. VIRTUAL DISPLAY DRIVER (IddSampleDriver)
-# We check if the device exists in PnP
+# 3. VIRTUAL DISPLAY DRIVER (Fixed URL & INF)
 $vddCheck = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match "Idd" -or $_.FriendlyName -match "MTT" }
 if (-not $vddCheck) {
     Write-Host "Installing Virtual Display Driver..." -ForegroundColor Yellow
     
+    # Using the new VirtualDrivers repository (v24.12.24 Stable Signed)
+    $vddUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/24.12.24/Signed-Driver-v24.12.24-x64.zip"
     $vddZip = "$env:TEMP\vdd_driver.zip"
-    $vddDir = "C:\IddSampleDriver"
+    $vddDir = "C:\VirtualDisplayDriver"
     
-    # Download Latest MikeTheTech Driver (Stable)
-    Invoke-WebRequest -Uri "https://github.com/itsmikethetech/Virtual-Display-Driver/releases/download/23.12.2.1/IddSampleDriver.zip" -OutFile $vddZip
+    # Download
+    Invoke-WebRequest -Uri $vddUrl -OutFile $vddZip
     
-    # Extract
+    # Clean & Extract
     if (Test-Path $vddDir) { Remove-Item $vddDir -Recurse -Force }
-    Expand-Archive -Path $vddZip -DestinationPath "C:\" -Force # Usually extracts to C:\IddSampleDriver
+    New-Item -ItemType Directory -Force -Path $vddDir | Out-Null
     
-    # Install Cert & Driver
-    Write-Host "Trusting Driver Certificate..."
-    certutil -addstore -f "TrustedPublisher" "$vddDir\IddSampleDriver.cer"
+    # Extract to temp first to handle variable zip structures
+    $tempExtract = "$env:TEMP\vdd_extract"
+    if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }
+    Expand-Archive -Path $vddZip -DestinationPath $tempExtract -Force
     
-    Write-Host "Adding Device Root Node..."
-    # We use nefconw if available, or the included bat helpers. 
-    # For reliability, we shell out to the install.bat usually included, or pnputil.
-    # Since this driver is tricky, we assume the user might need to click "Install" if silent fails, 
-    # but we try pnputil first.
-    pnputil /add-driver "$vddDir\IddSampleDriver.inf" /install
+    # Move files to target dir (flattening structure if needed)
+    Get-ChildItem -Path $tempExtract -Recurse -File | Copy-Item -Destination $vddDir -Force
     
-    Write-Host "VDD Installed. (If it fails, run C:\IddSampleDriver\install.bat manually)"
+    # Install Driver using pnputil with the NEW .inf name (MttVDD.inf)
+    Write-Host "Registering Driver..."
+    $infFile = "$vddDir\MttVDD.inf"
+    
+    if (Test-Path $infFile) {
+        pnputil /add-driver $infFile /install
+        Write-Host "VDD Installed successfully." -ForegroundColor Green
+    } else {
+        Write-Warning "Could not find MttVDD.inf. You may need to install the driver manually from $vddDir."
+    }
 } else {
     Write-Host "Virtual Display Driver is already present." -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
-# PHASE 2: CUSTOM TOOLS DEPLOYMENT (Sunshine-Tools)
+# PHASE 2: CUSTOM TOOLS DEPLOYMENT
 # ---------------------------------------------------------------------------
 
 if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null }
@@ -83,7 +89,6 @@ $Downloads = @(
 
 foreach ($tool in $Downloads) {
     $zipPath = "$ToolsDir\$($tool.Name).zip"
-    # Only download if missing to save time on re-runs
     if (-not (Test-Path "$ToolsDir\$($tool.Name).exe") -and -not (Test-Path "$ToolsDir\WindowsDisplayManager")) {
         Write-Host "Downloading $($tool.Name)..."
         Invoke-WebRequest -Uri $tool.Url -OutFile $zipPath
@@ -92,7 +97,6 @@ foreach ($tool in $Downloads) {
     }
 }
 
-# Fix WindowsDisplayManager Folder Name
 $gitHubFolder = Join-Path $ToolsDir "WindowsDisplayManager-master"
 $targetFolder = Join-Path $ToolsDir "WindowsDisplayManager"
 if (Test-Path $gitHubFolder) {
@@ -105,7 +109,7 @@ if (Test-Path $gitHubFolder) {
 # ---------------------------------------------------------------------------
 Write-Host "Writing Custom Configurations..."
 
-# 1. Setup Script (Hardened)
+# 1. Setup Script
 $SetupScript = @'
 $LogPath = "C:\Sunshine-Tools\sunvdm_log.txt"
 Start-Transcript -Path $LogPath -Append
@@ -118,7 +122,7 @@ try {
     $ConfigBackup = Join-Path $ScriptPath "monitor_config.cfg"
     $CsvPath = Join-Path $ScriptPath "current_monitors.csv"
 
-    # 1. HARDCODED TARGET (4K 60FPS)
+    # 1. HARDCODED TARGET (Default: 4K 60FPS)
     $width = 3840; $height = 2160; $fps = 60
     Log-Message "Target: $width x $height @ $fps"
 
@@ -156,7 +160,8 @@ try {
     Log-Message "Disabling Physical Monitors..."
     Start-Process -FilePath $MultiTool -ArgumentList "/scomma `"$CsvPath`"" -Wait -WindowStyle Hidden
     $monitors = Import-Csv $CsvPath
-    # Disable Display 5 (Hub) LAST
+    
+    # Disable Display 5 (Hub) LAST to prevent MST crash
     $sorted = $monitors | Sort-Object { if ($_.Name -eq "\\.\DISPLAY5") { 1 } else { 0 } }
 
     foreach ($m in $sorted) {
@@ -185,7 +190,7 @@ Stop-Transcript
 '@
 $SetupScript | Set-Content "$ToolsDir\setup_sunvdm.ps1" -Encoding UTF8
 
-# 2. Teardown Script (Hardened)
+# 2. Teardown Script
 $TeardownScript = @'
 $LogPath = "C:\Sunshine-Tools\sunvdm_log.txt"
 Start-Transcript -Path $LogPath -Append
@@ -208,7 +213,7 @@ try {
         Start-Process -FilePath $MultiTool -ArgumentList "/LoadConfig `"$ConfigBackup`"" -Wait -WindowStyle Hidden
     }
 
-    # 3. Enforce Hub Primary
+    # 3. Enforce Hub Primary (Display 5)
     Log-Message "Enforcing Primary: \\.\DISPLAY5"
     Start-Process -FilePath $MultiTool -ArgumentList "/SetPrimary \\.\DISPLAY5" -Wait -WindowStyle Hidden
     Start-Process -FilePath $MultiTool -ArgumentList "/Enable \\.\DISPLAY5" -Wait -WindowStyle Hidden
@@ -217,7 +222,6 @@ try {
 
 } catch {
     Log-Message "ERROR: $($_.Exception.Message)"
-    # Emergency Force
     & $MultiTool /Enable \\.\DISPLAY5
     & $MultiTool /SetPrimary \\.\DISPLAY5
 }
@@ -225,16 +229,10 @@ Stop-Transcript
 '@
 $TeardownScript | Set-Content "$ToolsDir\teardown_sunvdm.ps1" -Encoding UTF8
 
-# 3. AdvancedRun Configs (.cfg)
-# Global Monitor Configs (Admin)
-$cfg_setup = "[General]`r`nExeFilename=C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`r`nCommandLine=-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\setup_sunvdm.ps1`"`r`nStartDirectory=C:\Sunshine-Tools`r`nRunAs=1`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
-$cfg_setup | Set-Content "$ToolsDir\cfg_setup.cfg"
-
-$cfg_teardown = "[General]`r`nExeFilename=C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`r`nCommandLine=-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\teardown_sunvdm.ps1`"`r`nStartDirectory=C:\Sunshine-Tools`r`nRunAs=1`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
-$cfg_teardown | Set-Content "$ToolsDir\cfg_teardown.cfg"
-
-# App Configs (User Level)
+# 3. AdvancedRun Configs
 $Apps = @{
+    "cfg_setup.cfg"    = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\setup_sunvdm.ps1`"|C:\Sunshine-Tools|1|0"
+    "cfg_teardown.cfg" = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\teardown_sunvdm.ps1`"|C:\Sunshine-Tools|1|0"
     "cfg_steam.cfg"    = "C:\Windows\explorer.exe|steam://open/bigpicture|C:\Windows|0|3"
     "cfg_xbox.cfg"     = "C:\Windows\explorer.exe|shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App|C:\Windows|0|3"
     "cfg_playnite.cfg" = "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe||$env:LOCALAPPDATA\Playnite|0|3"
@@ -253,14 +251,13 @@ foreach ($key in $Apps.Keys) {
 # ---------------------------------------------------------------------------
 # PHASE 4: DEPLOY SUNSHINE CONFIG
 # ---------------------------------------------------------------------------
-Write-Host "Deploying Sunshine Configs..."
+Write-Host "Updating Sunshine Configuration..."
 
-# Sunshine Config (Global)
-$confContent = 'global_prep_cmd = [{"do":"C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_setup.cfg","undo":"C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_teardown.cfg"}]'
-$confContent | Set-Content "$SunshineConfigDir\sunshine.conf" -Encoding UTF8
+if (Test-Path $SunshineConfigDir) {
+    $confContent = 'global_prep_cmd = [{"do":"C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_setup.cfg","undo":"C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_teardown.cfg"}]'
+    $confContent | Set-Content "$SunshineConfigDir\sunshine.conf" -Encoding UTF8
 
-# Apps JSON (Smorgasbord)
-$appsContent = @'
+    $appsContent = @'
 {
   "env": {},
   "apps": [
@@ -275,7 +272,8 @@ $appsContent = @'
   ]
 }
 '@
-$appsContent | Set-Content "$SunshineConfigDir\apps.json" -Encoding UTF8
+    $appsContent | Set-Content "$SunshineConfigDir\apps.json" -Encoding UTF8
+}
 
 # ---------------------------------------------------------------------------
 # PHASE 5: FINAL CLEANUP
