@@ -1,11 +1,35 @@
+This is valid, actionable feedback. The `Break` command in a raw script was indeed a mistake (it only works inside loops), and `powertrprof.dll` was a genuine typo that would have silently failed.
+
+Here is the **Final Refined** version of the script.
+
+### **Changes Applied**
+
+1.  **Fixed Admin Check:** Replaced `Break` with `exit 1` to correctly halt execution if not Admin.
+2.  **Fixed Sleep Command:** Corrected `powertrprof.dll` to `powrprof.dll`.
+3.  **Added Safety Backups:** The script now creates `.bak` copies of `apps.json` and `sunshine.conf` before overwriting them.
+4.  **Winget Guard:** Wrapped the installation logic to check if `winget` exists first.
+5.  **Parameterized Resolution:** Added a `$MonitorConfig` block at the top so you can change the target resolution (4K/60Hz) without hunting through the here-strings.
+
+### **Final `install.ps1`**
+
+```powershell
 # ==============================================================================
-# SUNSHINE HOST BUILDER (FINAL GOLD MASTER)
+# SUNSHINE HOST BUILDER (FINAL REFINED)
 # ==============================================================================
 # Run this from an Administrator PowerShell terminal.
 
+# 1. GLOBAL CONFIGURATION
+# ==============================================================================
 $GlobalConfig = @{
     ToolsDir       = "C:\Sunshine-Tools"
     SunshineConfig = "C:\Program Files\Sunshine\config"
+}
+
+# Resolution settings for your Virtual Display (VDD)
+$MonitorConfig = @{
+    Width   = 3840
+    Height  = 2160
+    Refresh = 60
 }
 
 # Verified Icon URLs
@@ -21,31 +45,40 @@ $Covers = @{
     "desktop.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Windows_11_logo.svg/512px-Windows_11_logo.svg.png"
 }
 
-# --- HELPER FUNCTIONS ---
+# 2. HELPER FUNCTIONS
+# ==============================================================================
 
 function Write-Config {
     param($Path, $Content)
     $parent = Split-Path $Path -Parent
     if (-not (Test-Path $parent)) { New-Item -Path $parent -ItemType Directory -Force | Out-Null }
     
+    # Backup existing config if present
+    if (Test-Path $Path) {
+        Copy-Item $Path "$Path.bak" -Force
+        Write-Host "Backed up: $(Split-Path $Path -Leaf).bak" -ForegroundColor DarkGray
+    }
+
     # UTF-8 No BOM to prevent "∩╗┐" errors in Sunshine
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
     Write-Host "Updated: $(Split-Path $Path -Leaf)" -ForegroundColor Gray
 }
 
-# --- PRE-FLIGHT CHECKS ---
+# 3. PRE-FLIGHT CHECKS
+# ==============================================================================
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning "Please run this script as Administrator."
-    Break
+    exit 1
 }
 
 if (-not (Test-Path $GlobalConfig.ToolsDir)) {
     New-Item -Path $GlobalConfig.ToolsDir -ItemType Directory -Force | Out-Null
 }
 
-# --- SECURITY HARDENING (ACLs) ---
+# 4. SECURITY HARDENING (ACLs)
+# ==============================================================================
 Write-Host "Securing $($GlobalConfig.ToolsDir)..." -ForegroundColor Cyan
 try {
     $acl  = Get-Acl $GlobalConfig.ToolsDir
@@ -63,28 +96,36 @@ try {
 }
 catch { Write-Warning "ACL hardening failed. Using default permissions." }
 
-# --- DEPENDENCY INSTALLATION ---
+# 5. DEPENDENCY INSTALLATION
+# ==============================================================================
 
-function Install-WingetApp {
-    param($Id)
-    Write-Host "Checking $Id..." -ForegroundColor Yellow
-    $args = "install --id $Id -e --silent --accept-package-agreements --accept-source-agreements"
-    $proc = Start-Process -FilePath "winget" -ArgumentList $args -Wait -NoNewWindow -PassThru
-    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne -1978334967) { 
-        Write-Warning "Winget code $($proc.ExitCode) for $Id (Ignore if already installed)."
+# Check for Winget availability
+if (Get-Command "winget" -ErrorAction SilentlyContinue) {
+    
+    function Install-WingetApp {
+        param($Id)
+        Write-Host "Checking $Id..." -ForegroundColor Yellow
+        $args = "install --id $Id -e --silent --accept-package-agreements --accept-source-agreements"
+        $proc = Start-Process -FilePath "winget" -ArgumentList $args -Wait -NoNewWindow -PassThru
+        if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne -1978334967) { 
+            Write-Warning "Winget code $($proc.ExitCode) for $Id (Ignore if already installed)."
+        }
     }
+
+    # Check for Service Name OR Display Name to be robust
+    $sunshineSvc = Get-Service | Where-Object { $_.Name -eq 'SunshineService' -or $_.DisplayName -eq 'Sunshine Service' }
+    if (-not $sunshineSvc) { Install-WingetApp "LizardByte.Sunshine" }
+
+    if (-not (Test-Path "C:\Program Files\Playnite\Playnite.DesktopApp.exe") -and -not (Test-Path "C:\Program Files (x86)\Playnite\Playnite.DesktopApp.exe")) { 
+        Install-WingetApp "Playnite.Playnite" 
+    }
+
+} else {
+    Write-Warning "Winget not found. Skipping automatic application installation."
 }
 
-# Check for Service Name OR Display Name to be robust
-$sunshineSvc = Get-Service | Where-Object { $_.Name -eq 'SunshineService' -or $_.DisplayName -eq 'Sunshine Service' }
-if (-not $sunshineSvc) { Install-WingetApp "LizardByte.Sunshine" }
-
-if (-not (Test-Path "C:\Program Files\Playnite\Playnite.DesktopApp.exe") -and -not (Test-Path "C:\Program Files (x86)\Playnite\Playnite.DesktopApp.exe")) { 
-    Install-WingetApp "Playnite.Playnite" 
-}
-
-# --- TOOL DOWNLOADS ---
-
+# 6. TOOL DOWNLOADS
+# ==============================================================================
 $Downloads = @(
     @{ Name="MultiMonitorTool"; Url="https://www.nirsoft.net/utils/multimonitortool-x64.zip" },
     @{ Name="AdvancedRun";      Url="https://www.nirsoft.net/utils/advancedrun-x64.zip" },
@@ -113,7 +154,8 @@ foreach ($tool in $Downloads) {
     }
 }
 
-# --- VIRTUAL MONITOR SCRIPTS (Dynamic Generation) ---
+# 7. VIRTUAL MONITOR SCRIPTS (Dynamic Generation)
+# ==============================================================================
 # NOTE: The logic below defaults to "\\.\DISPLAY5" as the physical monitor.
 # If you change ports or GPUs, you must update the "SetPrimary" line below.
 
@@ -151,9 +193,9 @@ if (`$virtual_mon) {
         }
     }
 
-    # 6. Set Resolution (4K 60Hz)
+    # 6. Set Resolution ($($MonitorConfig.Width)x$($MonitorConfig.Height) @ $($MonitorConfig.Refresh)Hz)
     Start-Sleep -Milliseconds 500
-    & "`$ScriptPath\WindowsDisplayManager\WindowsDisplayManager.exe" set-mode -d 0 -w 3840 -h 2160 -r 60
+    & "`$ScriptPath\WindowsDisplayManager\WindowsDisplayManager.exe" set-mode -d 0 -w $($MonitorConfig.Width) -h $($MonitorConfig.Height) -r $($MonitorConfig.Refresh)
 }
 Stop-Transcript
 "@
@@ -177,7 +219,8 @@ Stop-Transcript
 Write-Config "$($GlobalConfig.ToolsDir)\teardown_sunvdm.ps1" $TeardownScript
 
 
-# --- APP LAUNCHER CONFIGURATION ---
+# 8. APP LAUNCHER CONFIGURATION
+# ==============================================================================
 # Includes Setup/Teardown to ensure launch_setup.bat and launch_teardown.bat are generated
 
 $Apps = @{
@@ -189,7 +232,7 @@ $Apps = @{
     "esde"     = "C:\Program Files\EmulationStation-DE\EmulationStation.exe||C:\Program Files\EmulationStation-DE|1|3|1"
     "browser"  = "C:\Program Files\Google\Chrome\Application\chrome.exe|--kiosk https://tv.youtube.com|C:\|1|3|0"
     "taskmgr"  = "C:\Windows\System32\Taskmgr.exe||C:\Windows\System32|4|1|0"
-    "sleep"    = "C:\Windows\System32\rundll32.exe|powertrprof.dll,SetSuspendState 0,1,0|C:\|4|0|0"
+    "sleep"    = "C:\Windows\System32\rundll32.exe|powrprof.dll,SetSuspendState 0,1,0|C:\|4|0|0"
     "restart"  = "shutdown.exe|/r /t 0|C:\|4|0|0"
 }
 
@@ -206,7 +249,8 @@ foreach ($key in $Apps.Keys) {
     Write-Config "$($GlobalConfig.ToolsDir)\launch_$key.bat" $batContent
 }
 
-# --- SUNSHINE CONFIG ---
+# 9. SUNSHINE CONFIGURATION
+# ==============================================================================
 Write-Host "Applying Sunshine Configuration..." -ForegroundColor Cyan
 
 $CoverDir = "$($GlobalConfig.SunshineConfig)\covers"
@@ -243,3 +287,4 @@ $confContent = 'global_prep_cmd = [{"do":"C:\\Sunshine-Tools\\launch_setup.bat",
 Write-Config "$($GlobalConfig.SunshineConfig)\sunshine.conf" $confContent
 
 Write-Host "Host setup complete. Restart Sunshine Service to apply changes." -ForegroundColor Green
+```
