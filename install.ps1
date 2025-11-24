@@ -317,7 +317,7 @@ if (-not (Test-Path $CoversDir)) { New-Item -ItemType Directory -Force -Path $Co
 foreach ($img in $CoverArt.Keys) {
     $dest = Join-Path $CoversDir $img
     if (-not (Test-Path $dest)) {
-        try { Invoke-WebRequest -Uri $CoverArt[$img] -OutFile $dest } catch { Write-Warning "Skipped artwork: $img" }
+        try { Invoke-WebRequest -Uri $CoverArt[$img] -OutFile $dest -UserAgent "Mozilla/5.0" } catch { Write-Warning "Skipped artwork: $img" }
     }
 }
 
@@ -331,3 +331,4 @@ Start-Sleep -Seconds 2
 Start-Service "Sunshine Service" -ErrorAction SilentlyContinue
 
 Write-Host ">>> INSTALLATION COMPLETE! <<<" -ForegroundColor Green
+
