@@ -9,7 +9,7 @@
 Open **PowerShell** as Administrator and run this single command:
 
 ```powershell
-irm [https://raw.githubusercontent.com/danielbmarshall/Sunshine-Custom-Host/main/install.ps1](https://raw.githubusercontent.com/danielbmarshall/Sunshine-Custom-Host/main/install.ps1) | iex
+irm https://raw.githubusercontent.com/danielbmarshall/Sunshine-Custom-Host/main/install.ps1 | iex
 ````
 
 > **What happens next?**
