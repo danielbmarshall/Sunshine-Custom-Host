@@ -24,19 +24,12 @@ $Covers = @{
     'esde.png'     = 'https://gitlab.com/uploads/-/system/project/avatar/18817634/emulationstation_1024x1024.png'
     'taskmgr.png'  = 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Windows_11_TASKMGR.png'
     'sleep.png'    = 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Oxygen480-actions-system-suspend.svg/480px-Oxygen480-actions-system-suspend.svg.png'
-    'restart.png'  = 'https://icons.iconarchive.com/icons/oxygen-icons.org/oxygen/128/Actions-system-reboot-icon.png'
+    'restart.png'  = 'https://www.svgrepo.com/png/378038/gnome-session-reboot.png'
     'browser.png'  = 'https://upload.wikimedia.org/wikipedia/commons/8/87/Google_Chrome_icon_%282011%29.png'
     'desktop.png'  = 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Windows_11_logo.svg/512px-Windows_11_logo.svg.png'
 }
 
-# --- Admin Check --------------------------------------------------------------
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {
-    Write-Error 'Please run this script as Administrator!'
-    exit 1
-}
-
-# --- Helper: Write UTF8 (no BOM) ---------------------------------------------
+# --- Helper: UTF8 (no BOM) writer --------------------------------------------
 function Write-Config {
     param(
         [Parameter(Mandatory)] [string] $Path,
@@ -57,11 +50,14 @@ function Install-WingetApp {
     }
 
     Write-Host "Installing $Id via winget..." -ForegroundColor Yellow
-    $args = "install --id $Id -e --silent --accept-package-agreements --accept-source-agreements"
-    $proc = Start-Process -FilePath 'winget' -ArgumentList $args -NoNewWindow -Wait -PassThru -ErrorAction Stop
-    if ($proc.ExitCode -ne 0) {
-        Write-Warning "winget install for $Id exited with code $($proc.ExitCode)."
-    }
+    winget install --id $Id -e --silent --accept-package-agreements --accept-source-agreements
+}
+
+# --- Admin check --------------------------------------------------------------
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Error 'Please run this script from an elevated PowerShell session.'
+    exit 1
 }
 
 Write-Host '>>> STARTING UNIFIED DEPLOYMENT...' -ForegroundColor Cyan
@@ -82,27 +78,16 @@ $acl.SetAccessRule($rule)
 Set-Acl -Path $ToolsDir -AclObject $acl
 
 # ---------------------------------------------------------------------------
-# 2. INSTALL SOFTWARE (SUNSHINE, PLAYNITE, VDD)
+# 2. INSTALL CORE SOFTWARE (SUNSHINE, PLAYNITE, VDD)
 # ---------------------------------------------------------------------------
 
-# Sunshine (service name or display name)
 Write-Host 'Checking for Sunshine...' -ForegroundColor Cyan
-$sunshineService = Get-Service -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -eq 'SunshineService' -or $_.DisplayName -eq 'Sunshine Service' }
-
-if (-not $sunshineService) {
+if (-not (Get-Service 'Sunshine Service' -ErrorAction SilentlyContinue)) {
     Install-WingetApp -Id 'LizardByte.Sunshine'
-    Start-Sleep -Seconds 5
-    $sunshineService = Get-Service -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq 'SunshineService' -or $_.DisplayName -eq 'Sunshine Service' }
-    if (-not $sunshineService) {
-        Write-Warning 'Sunshine service still not found after install. Please verify manually.'
-    }
 } else {
     Write-Host 'Sunshine already installed.' -ForegroundColor Green
 }
 
-# Playnite
 Write-Host 'Checking for Playnite...' -ForegroundColor Cyan
 $playniteExe = @(
     'C:\Program Files\Playnite\Playnite.FullscreenApp.exe',
@@ -118,53 +103,51 @@ if (-not $playniteExe) {
 
 # Virtual Display Driver (VDD) install if not present
 Write-Host 'Checking for Virtual Display Driver (VDD)...' -ForegroundColor Cyan
-$vddCheck = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
-            Where-Object { $_.FriendlyName -match 'Idd' -or $_.FriendlyName -match 'MTT' -or $_.FriendlyName -match 'VDD' }
+$vddPresent = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
+    Where-Object { $_.FriendlyName -match 'Idd' -or $_.FriendlyName -match 'MTT' } |
+    Select-Object -First 1
 
-if (-not $vddCheck) {
+if (-not $vddPresent) {
     Write-Host 'Installing VDD...' -ForegroundColor Yellow
-    $vddUrl = 'https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/24.12.24/Signed-Driver-v24.12.24-x64.zip'
-    $vddZip = "$env:TEMP\vdd.zip"
-    $vddDir = 'C:\VirtualDisplayDriver'
+    $vddUrl  = 'https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/24.12.24/Signed-Driver-v24.12.24-x64.zip'
+    $vddZip  = Join-Path $env:TEMP 'vdd.zip'
+    $vddDir  = 'C:\VirtualDisplayDriver'
+    $vddTemp = Join-Path $env:TEMP 'vdd_extract'
 
     Invoke-WebRequest -Uri $vddUrl -OutFile $vddZip -UseBasicParsing
 
     if (Test-Path $vddDir) {
         Remove-Item $vddDir -Recurse -Force
     }
-    New-Item -ItemType Directory -Force -Path $vddDir | Out-Null
+    if (Test-Path $vddTemp) {
+        Remove-Item $vddTemp -Recurse -Force
+    }
 
-    Expand-Archive -Path $vddZip -DestinationPath "$env:TEMP\vdd_extract" -Force
-    Get-ChildItem -Path "$env:TEMP\vdd_extract" -Recurse -File | Copy-Item -Destination $vddDir -Force
+    New-Item -ItemType Directory -Force -Path $vddDir  | Out-Null
+    New-Item -ItemType Directory -Force -Path $vddTemp | Out-Null
 
+    Expand-Archive -Path $vddZip -DestinationPath $vddTemp -Force
+    Get-ChildItem -Path $vddTemp -Recurse -File | Copy-Item -Destination $vddDir -Force
     pnputil /add-driver "$vddDir\MttVDD.inf" /install
 } else {
-    Write-Host 'VDD already installed.' -ForegroundColor Green
+    Write-Host "VDD already present: $($vddPresent.FriendlyName)" -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
-# 3. DEPLOY HELPER TOOLS
+# 3. TOOLCHAIN (MultiMonitorTool, AdvancedRun, WindowsDisplayManager)
 # ---------------------------------------------------------------------------
-Write-Host 'Deploying helper tools...' -ForegroundColor Cyan
+Write-Host 'Ensuring helper tools are in place...' -ForegroundColor Cyan
 
 $Downloads = @(
     @{ Name = 'MultiMonitorTool'; Url = 'https://www.nirsoft.net/utils/multimonitortool-x64.zip' },
     @{ Name = 'AdvancedRun';      Url = 'https://www.nirsoft.net/utils/advancedrun-x64.zip' },
-    @{ Name = 'WinDisplayMgr';    Url = 'https://github.com/patrick-theprogrammer/WindowsDisplayManager/archive/refs/heads/master.zip' }
+    @{ Name = 'WindowsDisplayManager'; Url = 'https://github.com/patrick-theprogrammer/WindowsDisplayManager/archive/refs/heads/master.zip' }
 )
 
 foreach ($tool in $Downloads) {
-    $zipPath = "$ToolsDir\$($tool.Name).zip"
+    $zipPath = Join-Path $ToolsDir ("{0}.zip" -f $tool.Name)
 
-    if ($tool.Name -in @('MultiMonitorTool','AdvancedRun')) {
-        $expectedExe = "$ToolsDir\$($tool.Name).exe"
-        if (-not (Test-Path $expectedExe)) {
-            Write-Host "Downloading $($tool.Name)..." -ForegroundColor Yellow
-            Invoke-WebRequest -Uri $tool.Url -OutFile $zipPath -UseBasicParsing
-            Expand-Archive -Path $zipPath -DestinationPath $ToolsDir -Force
-            Remove-Item $zipPath -Force
-        }
-    } else {
+    if ($tool.Name -eq 'WindowsDisplayManager') {
         if (-not (Test-Path "$ToolsDir\WindowsDisplayManager")) {
             Write-Host 'Downloading WindowsDisplayManager...' -ForegroundColor Yellow
             Invoke-WebRequest -Uri $tool.Url -OutFile $zipPath -UseBasicParsing
@@ -174,19 +157,27 @@ foreach ($tool in $Downloads) {
                 Rename-Item -Path "$ToolsDir\WindowsDisplayManager-master" -NewName 'WindowsDisplayManager' -Force
             }
         }
+    } else {
+        $exeTest = Join-Path $ToolsDir ("{0}.exe" -f $tool.Name)
+        if (-not (Test-Path $exeTest)) {
+            Write-Host "Downloading $($tool.Name)..." -ForegroundColor Yellow
+            Invoke-WebRequest -Uri $tool.Url -OutFile $zipPath -UseBasicParsing
+            Expand-Archive -Path $zipPath -DestinationPath $ToolsDir -Force
+            Remove-Item $zipPath -Force
+        }
     }
 }
 
 # ---------------------------------------------------------------------------
-# 4. GENERATE SETUP / TEARDOWN SCRIPTS (inner scripts as here-strings)
+# 4. GENERATE SETUP / TEARDOWN SCRIPTS
 # ---------------------------------------------------------------------------
 Write-Host 'Generating setup/teardown scripts...' -ForegroundColor Cyan
 
 $setupScript = @"
 `$ErrorActionPreference = 'Stop'
 
-`$LogPath    = Join-Path 'C:\Sunshine-Tools' 'sunvdm_log.txt'
-`$ScriptPath = 'C:\Sunshine-Tools'
+`$LogPath    = Join-Path '$ToolsDir' 'sunvdm_log.txt'
+`$ScriptPath = '$ToolsDir'
 `$Width      = $($MonitorConfig.Width)
 `$Height     = $($MonitorConfig.Height)
 `$Refresh    = $($MonitorConfig.Refresh)
@@ -197,46 +188,43 @@ function Write-Log {
     Add-Content -Path `$LogPath -Value "`$timestamp [SETUP] `$Message"
 }
 
-try {
-    Write-Log 'Starting VDD setup.'
+Write-Log '--- SETUP STARTED ---'
 
-    `$multiTool    = Join-Path `$ScriptPath 'MultiMonitorTool.exe'
-    `$configBackup = Join-Path `$ScriptPath 'monitor_config.cfg'
-    `$csvPath      = Join-Path `$ScriptPath 'current_monitors.csv'
+try {
+    `$multiTool     = Join-Path `$ScriptPath 'MultiMonitorTool.exe'
+    `$configBackup  = Join-Path `$ScriptPath 'monitor_config.cfg'
+    `$csvPath       = Join-Path `$ScriptPath 'current_monitors.csv'
+    `$maxTries      = 20
+    `$virtual       = `$null
 
     if (-not (Test-Path `$multiTool)) {
-        Write-Log 'MultiMonitorTool.exe not found. Aborting setup.'
+        Write-Log 'MultiMonitorTool.exe not found.'
         return
     }
 
-    Write-Log 'Saving current monitor configuration.'
-    & `$multiTool /SaveConfig "`$configBackup"
+    # Backup current display config
+    Write-Log 'Saving current monitor configuration...'
+    Start-Process -FilePath `$multiTool -ArgumentList "/SaveConfig ``"`$configBackup```"" -Wait -WindowStyle Hidden
 
-    # Enable any virtual display devices that are present but disabled
-    `$vddDevices = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
-                   Where-Object { `$_.FriendlyName -match 'MTT' -or `$_.FriendlyName -match 'IddSample' -or `$_.FriendlyName -match 'VDD' }
+    # Ensure VDD device is enabled
+    Write-Log 'Enabling VDD display device...'
+    `$vdd = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
+        Where-Object { `$_.FriendlyName -match 'Idd' -or `$_.FriendlyName -match 'MTT' } |
+        Select-Object -First 1
 
-    if (-not `$vddDevices) {
-        Write-Log 'No virtual display devices found. Aborting setup.'
+    if (`$vdd) {
+        `$vdd | Enable-PnpDevice -Confirm:\$false -ErrorAction SilentlyContinue
+    } else {
+        Write-Log 'No VDD device found; aborting setup.'
         return
     }
 
-    foreach (`$dev in `$vddDevices) {
-        if (`$dev.Status -ne 'OK') {
-            Write-Log "Enabling virtual display device: `$(`$dev.FriendlyName)"
-            Enable-PnpDevice -InstanceId `$dev.InstanceId -Confirm:`$false -ErrorAction SilentlyContinue | Out-Null
-        }
-    }
-
-    Write-Log 'Waiting for virtual display to appear in MultiMonitorTool output...'
-    `$maxTries = 40
-    `$virtual  = $null
-
+    # Poll for virtual monitor enumeration
     for (`$i = 0; `$i -lt `$maxTries -and -not `$virtual; `$i++) {
-        & `$multiTool /scomma "`$csvPath"
+        Start-Process -FilePath `$multiTool -ArgumentList "/scomma ``"`$csvPath```"" -Wait -WindowStyle Hidden
         if (Test-Path `$csvPath) {
             `$monitors = Import-Csv `$csvPath
-            `$virtual  = `$monitors | Where-Object { `$_.MonitorID -match 'MTT' -or `$_.MonitorName -match 'VDD' -or `$_.Name -match 'VDD' }
+            `$virtual  = `$monitors | Where-Object { `$_.'Monitor Name' -match 'VDD' -or `$_.'MonitorID' -match 'MTT' } | Select-Object -First 1
         }
         if (-not `$virtual) {
             Start-Sleep -Milliseconds 250
@@ -244,43 +232,45 @@ try {
     }
 
     if (-not `$virtual) {
-        Write-Log 'Virtual display not found after timeout. Restoring original configuration.'
-        & `$multiTool /LoadConfig "`$configBackup"
+        Write-Log 'Virtual display did not appear; rolling back.'
+        if (Test-Path `$configBackup) {
+            Start-Process -FilePath `$multiTool -ArgumentList "/LoadConfig ``"`$configBackup```"" -Wait -WindowStyle Hidden
+        }
         return
     }
 
-    `$targetName = `$virtual[0].Name
-    Write-Log "Using virtual display as primary: `$targetName"
+    Write-Log "Virtual display found: `$(`$virtual.Name)"
 
-    & `$multiTool /SetPrimary "`$targetName"
-    & `$multiTool /Enable "`$targetName"
+    # Set VDD as primary and disable other displays
+    Start-Process -FilePath `$multiTool -ArgumentList "/SetPrimary `$(`$virtual.Name)" -Wait -WindowStyle Hidden
+    Start-Process -FilePath `$multiTool -ArgumentList "/Enable `$(`$virtual.Name)" -Wait -WindowStyle Hidden
 
-    Write-Log 'Disabling other active displays.'
-    & `$multiTool /scomma "`$csvPath"
+    Start-Process -FilePath `$multiTool -ArgumentList "/scomma ``"`$csvPath```"" -Wait -WindowStyle Hidden
     `$monitors = Import-Csv `$csvPath
-
     foreach (`$m in `$monitors) {
-        if (`$m.Active -eq 'Yes' -and `$m.Name -ne `$targetName) {
-            Write-Log "Disabling display: `$(`$m.Name)"
-            & `$multiTool /Disable "`$(`$m.Name)"
+        if (`$m.Active -eq 'Yes' -and `$m.Name -ne `$virtual.Name) {
+            Write-Log "Disabling physical monitor: `$(`$m.Name)"
+            Start-Process -FilePath `$multiTool -ArgumentList "/disable `$(`$m.Name)" -Wait -WindowStyle Hidden
         }
     }
 
-    # Set resolution using WindowsDisplayManager (if present)
-    `$wdmFolder = Join-Path `$ScriptPath 'WindowsDisplayManager'
-    `$wdmExe    = Get-ChildItem -Path `$wdmFolder -Recurse -Filter 'WindowsDisplayManager.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-
-    if (`$wdmExe) {
-        Write-Log "Setting VDD resolution to `$Width x `$Height @ `$Refresh Hz"
-        & `$(`$wdmExe.FullName) set-mode -w `$Width -h `$Height -r `$Refresh -d 0
+    # Use WindowsDisplayManager to set resolution / refresh
+    Import-Module (Join-Path `$ScriptPath 'WindowsDisplayManager') -ErrorAction SilentlyContinue
+    if (Get-Command -Name 'WindowsDisplayManager\GetAllPotentialDisplays' -ErrorAction SilentlyContinue) {
+        `$displays = WindowsDisplayManager\GetAllPotentialDisplays
+        `$vdDisplay = `$displays | Where-Object { `$_.source.description -eq `$vdd.FriendlyName } | Select-Object -First 1
+        if (`$vdDisplay) {
+            Write-Log "Setting VDD resolution to `$Width x `$Height @ `$Refresh Hz"
+            `$vdDisplay.SetResolution([int]`$Width, [int]`$Height, [int]`$Refresh)
+        } else {
+            Write-Log 'WindowsDisplayManager: VDD display entry not found.'
+        }
     } else {
-        Write-Log 'WindowsDisplayManager.exe not found. Skipping resolution step.'
+        Write-Log 'WindowsDisplayManager module not available.'
     }
-
-    Write-Log 'VDD setup completed successfully.'
 }
 catch {
-    Write-Log "ERROR: `$($_.Exception.Message)"
+    Write-Log "ERROR: `$(`$_.Exception.Message)"
 }
 "@
 
@@ -289,8 +279,8 @@ Write-Config "$ToolsDir\setup_sunvdm.ps1" $setupScript
 $teardownScript = @"
 `$ErrorActionPreference = 'Stop'
 
-`$LogPath    = Join-Path 'C:\Sunshine-Tools' 'sunvdm_log.txt'
-`$ScriptPath = 'C:\Sunshine-Tools'
+`$LogPath    = Join-Path '$ToolsDir' 'sunvdm_log.txt'
+`$ScriptPath = '$ToolsDir'
 
 function Write-Log {
     param([string]`$Message)
@@ -298,43 +288,43 @@ function Write-Log {
     Add-Content -Path `$LogPath -Value "`$timestamp [TEARDOWN] `$Message"
 }
 
-try {
-    Write-Log 'Starting VDD teardown.'
+Write-Log '--- TEARDOWN STARTED ---'
 
+try {
     `$multiTool    = Join-Path `$ScriptPath 'MultiMonitorTool.exe'
     `$configBackup = Join-Path `$ScriptPath 'monitor_config.cfg'
 
-    # Disable any virtual display devices that are enabled
-    `$vddDevices = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
-                   Where-Object { `$_.FriendlyName -match 'MTT' -or `$_.FriendlyName -match 'IddSample' -or `$_.FriendlyName -match 'VDD' }
+    `$vdd = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
+        Where-Object { `$_.FriendlyName -match 'Idd' -or `$_.FriendlyName -match 'MTT' } |
+        Select-Object -First 1
 
-    foreach (`$dev in `$vddDevices) {
-        if (`$dev.Status -eq 'OK') {
-            Write-Log "Disabling virtual display device: `$(`$dev.FriendlyName)"
-            Disable-PnpDevice -InstanceId `$dev.InstanceId -Confirm:`$false -ErrorAction SilentlyContinue | Out-Null
-        }
+    if (`$vdd) {
+        Write-Log "Disabling VDD device: `$(`$vdd.FriendlyName)"
+        `$vdd | Disable-PnpDevice -Confirm:\$false -ErrorAction SilentlyContinue
     }
 
     if (Test-Path `$multiTool -and Test-Path `$configBackup) {
-        Write-Log 'Restoring original monitor configuration.'
-        & `$multiTool /LoadConfig "`$configBackup"
+        Write-Log 'Restoring previous monitor configuration...'
+        Start-Process -FilePath `$multiTool -ArgumentList "/LoadConfig ``"`$configBackup```"" -Wait -WindowStyle Hidden
     } else {
-        Write-Log 'MultiMonitorTool or backup config not found. Skipping restore.'
+        Write-Log 'Backup configuration not found; attempting to enable DISPLAY1 as primary.'
+        if (Test-Path `$multiTool) {
+            & `$multiTool /Enable \\.\DISPLAY1
+            & `$multiTool /SetPrimary \\.\DISPLAY1
+        }
     }
-
-    Write-Log 'VDD teardown completed.'
 }
 catch {
-    Write-Log "ERROR: `$($_.Exception.Message)"
+    Write-Log "ERROR: `$(`$_.Exception.Message)"
 }
 "@
 
 Write-Config "$ToolsDir\teardown_sunvdm.ps1" $teardownScript
 
 # ---------------------------------------------------------------------------
-# 5. ADVANCEDRUN CONFIGS + BATCH WRAPPERS
+# 5. ADVANCEDRUN CONFIGS (NO BATCH WRAPPERS)
 # ---------------------------------------------------------------------------
-Write-Host 'Generating AdvancedRun configs + batch launchers...' -ForegroundColor Cyan
+Write-Host 'Generating AdvancedRun configs...' -ForegroundColor Cyan
 
 # Name      = ExePath | Args | StartDir | RunAs | WindowState | WaitProcess
 $Apps = @{
@@ -342,7 +332,7 @@ $Apps = @{
     'teardown' = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$ToolsDir\teardown_sunvdm.ps1`"|$ToolsDir|3|0|1"
     'steam'    = "C:\Windows\explorer.exe|steam://open/bigpicture|C:\Windows|1|0|0"
     'xbox'     = "C:\Windows\explorer.exe|shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App|C:\Windows|1|0|0"
-    'playnite' = "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe||$env:LOCALAPPDATA\Playnite|1|3|0"
+    'playnite' = "$playniteExe||$(Split-Path -Path $playniteExe)|1|3|0"
     'esde'     = "$env:APPDATA\EmuDeck\Emulators\ES-DE\ES-DE.exe||$env:APPDATA\EmuDeck\Emulators\ES-DE|1|3|0"
     'sleep'    = "C:\Windows\System32\rundll32.exe|powrprof.dll,SetSuspendState 0,1,0|C:\Windows\System32|3|0|0"
     'restart'  = "C:\Windows\System32\shutdown.exe|/r /t 0|C:\Windows\System32|3|0|0"
@@ -372,11 +362,6 @@ foreach ($key in $Apps.Keys) {
                   "ParseVarInsideCmdLine=1"
 
     Write-Config $cfgPath $cfgContent
-
-    $batPath = Join-Path $ToolsDir ("launch_{0}.bat" -f $key)
-    $batContent = "@echo off`r`n" +
-                  "`"$ToolsDir\AdvancedRun.exe`" /Run `"$cfgPath`""
-    Write-Config $batPath $batContent
 }
 
 # ---------------------------------------------------------------------------
@@ -410,30 +395,30 @@ if (Test-Path $SunshineConfigDir) {
     # Backup existing config files once
     foreach ($file in @('sunshine.conf','apps.json')) {
         $path = Join-Path $SunshineConfigDir $file
-        if (Test-Path $path) {
-            if (-not (Test-Path "$path.bak")) {
-                Copy-Item $path "$path.bak" -Force
-                Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
-            }
+        if (Test-Path $path -and -not (Test-Path "$path.bak")) {
+            Copy-Item $path "$path.bak" -Force
+            Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
         }
     }
 
-    $confContent = 'global_prep_cmd = [{"do":"C:\\Sunshine-Tools\\launch_setup.bat","undo":"C:\\Sunshine-Tools\\launch_teardown.bat"}]'
+    # global_prep_cmd: call PowerShell scripts directly via cmd, elevated
+    $confContent = 'global_prep_cmd = [{"do":"cmd /C powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\\\Sunshine-Tools\\\\setup_sunvdm.ps1\" > \"C:\\\\Sunshine-Tools\\\\sunvdm.log\" 2>&1","undo":"cmd /C powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\\\Sunshine-Tools\\\\teardown_sunvdm.ps1\" >> \"C:\\\\Sunshine-Tools\\\\sunvdm.log\" 2>&1","elevated":true}]'
     Write-Config "$SunshineConfigDir\sunshine.conf" $confContent
 
+    # apps.json: call AdvancedRun configs directly (no batch files)
     $appsContent = @'
 {
   "env": {},
   "apps": [
     { "name": "Desktop", "image-path": "covers\\desktop.png" },
-    { "name": "Steam Big Picture", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_steam.bat", "undo": "" } ], "image-path": "covers\\steam.png" },
-    { "name": "Xbox (Game Pass)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_xbox.bat", "undo": "" } ], "image-path": "covers\\xbox.png" },
-    { "name": "Playnite", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_playnite.bat", "undo": "" } ], "image-path": "covers\\playnite.png" },
-    { "name": "EmulationStation", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_esde.bat", "undo": "" } ], "image-path": "covers\\esde.png" },
-    { "name": "YouTube TV", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_browser.bat", "undo": "" } ], "image-path": "covers\\browser.png" },
-    { "name": "Task Manager (Rescue)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_taskmgr.bat", "undo": "" } ], "image-path": "covers\\taskmgr.png" },
-    { "name": "Sleep PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_sleep.bat", "undo": "" } ], "image-path": "covers\\sleep.png" },
-    { "name": "Restart PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\launch_restart.bat", "undo": "" } ], "image-path": "covers\\restart.png" }
+    { "name": "Steam Big Picture", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_steam.cfg", "undo": "" } ], "image-path": "covers\\steam.png" },
+    { "name": "Xbox (Game Pass)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_xbox.cfg", "undo": "" } ], "image-path": "covers\\xbox.png" },
+    { "name": "Playnite", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_playnite.cfg", "undo": "" } ], "image-path": "covers\\playnite.png" },
+    { "name": "EmulationStation", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_esde.cfg", "undo": "" } ], "image-path": "covers\\esde.png" },
+    { "name": "YouTube TV", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_browser.cfg", "undo": "" } ], "image-path": "covers\\browser.png" },
+    { "name": "Task Manager (Rescue)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_taskmgr.cfg", "undo": "" } ], "image-path": "covers\\taskmgr.png" },
+    { "name": "Sleep PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_sleep.cfg", "undo": "" } ], "image-path": "covers\\sleep.png" },
+    { "name": "Restart PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_restart.cfg", "undo": "" } ], "image-path": "covers\\restart.png" }
   ]
 }
 '@
