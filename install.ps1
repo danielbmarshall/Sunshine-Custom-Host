@@ -1,36 +1,63 @@
 # ============================================================================
-#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (NIRSOFT CERTIFIED SYNTAX)
-#  Refined based on AdvancedRun v1.51 Documentation
+#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (v3.0)
+#  - Architecture: Config Block + Dynamic Injection
+#  - Reliability: AdvancedRun + NoBOM + Browser Headers
 # ============================================================================
+
+# --- [USER CONFIGURATION BLOCK] ---------------------------------------------
+# EDIT THESE VALUES TO CUSTOMIZE YOUR INSTALLATION
+# ----------------------------------------------------------------------------
+$GlobalConfig = @{
+    # Target Display Settings
+    Width  = "3840"
+    Height = "2160"
+    FPS    = "60"
+
+    # Directories
+    ToolsDir       = "C:\Sunshine-Tools"
+    SunshineConfig = "C:\Program Files\Sunshine\config"
+}
+# ----------------------------------------------------------------------------
+
 $ErrorActionPreference = "Stop"
-$ToolsDir = "C:\Sunshine-Tools"
-$SunshineConfigDir = "C:\Program Files\Sunshine\config"
-$SunshineCoversDir = "$SunshineConfigDir\covers"
+$SunshineCoversDir = "$($GlobalConfig.SunshineConfig)\covers"
 
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Error "Please run this script as Administrator!"
     exit
 }
 
-# Helper to write UTF8-NoBOM (Standard for .cfg/json)
+# Helper: Write UTF8-NoBOM (Crucial for Sunshine Parser)
 function Write-Config {
     param($Path, $Content)
-    [System.IO.File]::WriteAllText($Path, $Content, [System.Text.Encoding]::UTF8)
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+    Write-Host "Updated: $(Split-Path $Path -Leaf)" -ForegroundColor Gray
 }
 
-Write-Host ">>> STARTING NIRSOFT-OPTIMIZED DEPLOYMENT..." -ForegroundColor Cyan
+Write-Host ">>> STARTING CONFIGURABLE DEPLOYMENT..." -ForegroundColor Cyan
+Write-Host "Target Resolution: $($GlobalConfig.Width)x$($GlobalConfig.Height) @ $($GlobalConfig.FPS)Hz" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# 1. SOFTWARE INSTALLATION (Idempotent)
+# 1. PREPARE ENVIRONMENT
 # ---------------------------------------------------------------------------
-# Sunshine
+if (-not (Test-Path $GlobalConfig.ToolsDir)) { New-Item -ItemType Directory -Force -Path $GlobalConfig.ToolsDir | Out-Null }
+
+# Grant Everyone Full Control (Fixes 'Access Denied' edge cases)
+$acl = Get-Acl $GlobalConfig.ToolsDir
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone","FullControl","ContainerInherit,ObjectInherit","None","Allow")
+$acl.SetAccessRule($rule)
+Set-Acl $GlobalConfig.ToolsDir $acl
+
+# ---------------------------------------------------------------------------
+# 2. INSTALL SOFTWARE (Idempotent Checks)
+# ---------------------------------------------------------------------------
 if (-not (Get-Service "Sunshine Service" -ErrorAction SilentlyContinue)) {
     Write-Host "Installing Sunshine..." -ForegroundColor Yellow
     winget install --id LizardByte.Sunshine -e --silent --accept-package-agreements --accept-source-agreements
     Start-Sleep -Seconds 5
 }
 
-# Playnite
 if (-not (Test-Path "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe")) {
     Write-Host "Installing Playnite..." -ForegroundColor Yellow
     winget install --id Playnite.Playnite -e --silent --accept-package-agreements --accept-source-agreements
@@ -39,24 +66,23 @@ if (-not (Test-Path "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe")) {
 # Virtual Display Driver (Signed)
 $vddCheck = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match "Idd" -or $_.FriendlyName -match "MTT" }
 if (-not $vddCheck) {
-    Write-Host "Installing Virtual Display Driver..." -ForegroundColor Yellow
+    Write-Host "Installing VDD..." -ForegroundColor Yellow
     $vddUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/24.12.24/Signed-Driver-v24.12.24-x64.zip"
-    $vddZip = "$env:TEMP\vdd_driver.zip"
+    $vddZip = "$env:TEMP\vdd.zip"
     $vddDir = "C:\VirtualDisplayDriver"
+    
     Invoke-WebRequest -Uri $vddUrl -OutFile $vddZip
     if (Test-Path $vddDir) { Remove-Item $vddDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $vddDir | Out-Null
     Expand-Archive -Path $vddZip -DestinationPath "$env:TEMP\vdd_extract" -Force
     Get-ChildItem -Path "$env:TEMP\vdd_extract" -Recurse -File | Copy-Item -Destination $vddDir -Force
-    Write-Host "Registering Driver..."
+    
     pnputil /add-driver "$vddDir\MttVDD.inf" /install
 }
 
 # ---------------------------------------------------------------------------
-# 2. TOOL DEPLOYMENT
+# 3. DEPLOY TOOLS (NirSoft + WDM)
 # ---------------------------------------------------------------------------
-if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null }
-
 $Downloads = @(
     @{ Name="MultiMonitorTool"; Url="https://www.nirsoft.net/utils/multimonitortool-x64.zip" },
     @{ Name="AdvancedRun";      Url="https://www.nirsoft.net/utils/advancedrun-x64.zip" },
@@ -64,34 +90,40 @@ $Downloads = @(
 )
 
 foreach ($tool in $Downloads) {
-    $zipPath = "$ToolsDir\$($tool.Name).zip"
-    if (-not (Test-Path "$ToolsDir\$($tool.Name).exe") -and -not (Test-Path "$ToolsDir\WindowsDisplayManager")) {
+    $zipPath = "$($GlobalConfig.ToolsDir)\$($tool.Name).zip"
+    # Download if missing to speed up re-runs
+    if (-not (Test-Path "$($GlobalConfig.ToolsDir)\$($tool.Name).exe") -and -not (Test-Path "$($GlobalConfig.ToolsDir)\WindowsDisplayManager")) {
         Write-Host "Downloading $($tool.Name)..."
         Invoke-WebRequest -Uri $tool.Url -OutFile $zipPath
-        Expand-Archive -Path $zipPath -DestinationPath $ToolsDir -Force
+        Expand-Archive -Path $zipPath -DestinationPath $GlobalConfig.ToolsDir -Force
         Remove-Item $zipPath -Force
     }
 }
-if (Test-Path "$ToolsDir\WindowsDisplayManager-master") {
-    Rename-Item -Path "$ToolsDir\WindowsDisplayManager-master" -NewName "WindowsDisplayManager" -Force
+if (Test-Path "$($GlobalConfig.ToolsDir)\WindowsDisplayManager-master") {
+    Rename-Item -Path "$($GlobalConfig.ToolsDir)\WindowsDisplayManager-master" -NewName "WindowsDisplayManager" -Force
 }
 
 # ---------------------------------------------------------------------------
-# 3. POWERSHELL SCRIPTS (Setup/Teardown)
+# 4. GENERATE POWERSHELL SCRIPTS (With Variable Injection)
 # ---------------------------------------------------------------------------
-# Note: We use hardcoded paths inside the scripts for reliability
-$SetupScript = @'
-$LogPath = "C:\Sunshine-Tools\sunvdm_log.txt"
+Write-Host "Generating Hardened Scripts..."
+
+# Setup Script Template
+$SetupTemplate = @'
+$LogPath = "{{TOOLS}}\sunvdm_log.txt"
 Start-Transcript -Path $LogPath -Append
 function Log-Message { param([string]$msg) Write-Host "$(Get-Date -Format 'HH:mm:ss') - $msg" }
 
 try {
     Log-Message "--- SETUP STARTED ---"
-    $ScriptPath = "C:\Sunshine-Tools"
+    $ScriptPath = "{{TOOLS}}"
     $MultiTool = Join-Path $ScriptPath "MultiMonitorTool.exe"
     $ConfigBackup = Join-Path $ScriptPath "monitor_config.cfg"
     $CsvPath = Join-Path $ScriptPath "current_monitors.csv"
-    $width = 3840; $height = 2160; $fps = 60
+
+    # INJECTED CONFIGURATION
+    $width = {{WIDTH}}; $height = {{HEIGHT}}; $fps = {{FPS}}
+    Log-Message "Target: $width x $height @ $fps"
 
     # Backup
     Start-Process -FilePath $MultiTool -ArgumentList "/SaveConfig `"$ConfigBackup`"" -Wait -WindowStyle Hidden
@@ -142,15 +174,19 @@ try {
 }
 Stop-Transcript
 '@
-Write-Config "$ToolsDir\setup_sunvdm.ps1" $SetupScript
 
-$TeardownScript = @'
-$LogPath = "C:\Sunshine-Tools\sunvdm_log.txt"
+# Inject Variables
+$FinalSetup = $SetupTemplate.Replace("{{WIDTH}}", $GlobalConfig.Width).Replace("{{HEIGHT}}", $GlobalConfig.Height).Replace("{{FPS}}", $GlobalConfig.FPS).Replace("{{TOOLS}}", $GlobalConfig.ToolsDir)
+Write-Config "$($GlobalConfig.ToolsDir)\setup_sunvdm.ps1" $FinalSetup
+
+# Teardown Script (No injection needed, but using variable for ToolsDir)
+$TeardownTemplate = @'
+$LogPath = "{{TOOLS}}\sunvdm_log.txt"
 Start-Transcript -Path $LogPath -Append
 function Log-Message { param([string]$msg) Write-Host "$(Get-Date -Format 'HH:mm:ss') - $msg" }
 try {
     Log-Message "--- TEARDOWN STARTED ---"
-    $ScriptPath = "C:\Sunshine-Tools"
+    $ScriptPath = "{{TOOLS}}"
     $MultiTool = Join-Path $ScriptPath "MultiMonitorTool.exe"
     $ConfigBackup = Join-Path $ScriptPath "monitor_config.cfg"
 
@@ -172,80 +208,47 @@ try {
 }
 Stop-Transcript
 '@
-Write-Config "$ToolsDir\teardown_sunvdm.ps1" $TeardownScript
+$FinalTeardown = $TeardownTemplate.Replace("{{TOOLS}}", $GlobalConfig.ToolsDir)
+Write-Config "$($GlobalConfig.ToolsDir)\teardown_sunvdm.ps1" $FinalTeardown
+
 
 # ---------------------------------------------------------------------------
-# 4. ADVANCEDRUN CONFIGS (.CFG) - DOCUMENTATION COMPLIANT
+# 5. ADVANCEDRUN CONFIGS + BATCH WRAPPERS
 # ---------------------------------------------------------------------------
-# RunAs Mapping based on NirSoft PDF:
-# 1 = Current User (Allow UAC)
-# 2 = Current User (No UAC)
-# 3 = Administrator (Force UAC)
-# 4 = SYSTEM
+# RunAs Mapping: 1=User(AllowUAC), 3=Admin(ForceUAC). 
+# WindowState: 0=Hidden, 3=Max. 
+# WaitProcess: 1=Yes(Scripts), 0=No(Apps).
 
-# WaitProcess=1 ensures Sunshine waits for the script to finish (Preventing Race Condition) 
-# ParseVarInsideCmdLine=1 ensures %LOCALAPPDATA% works 
+$Apps = @{
+    "setup"    = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$($GlobalConfig.ToolsDir)\setup_sunvdm.ps1`"|$($GlobalConfig.ToolsDir)|3|0|1"
+    "teardown" = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$($GlobalConfig.ToolsDir)\teardown_sunvdm.ps1`"|$($GlobalConfig.ToolsDir)|3|0|1"
+    "steam"    = "C:\Windows\explorer.exe|steam://open/bigpicture|C:\Windows|1|0|0"
+    "xbox"     = "C:\Windows\explorer.exe|shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App|C:\Windows|1|0|0"
+    "playnite" = "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe||$env:LOCALAPPDATA\Playnite|1|3|0"
+    "esde"     = "$env:APPDATA\EmuDeck\Emulators\ES-DE\ES-DE.exe||$env:APPDATA\EmuDeck\Emulators\ES-DE|1|3|0"
+    "sleep"    = "C:\Windows\System32\rundll32.exe|powrprof.dll,SetSuspendState 0,1,0|C:\Windows\System32|3|0|0"
+    "restart"  = "C:\Windows\System32\shutdown.exe|/r /t 0|C:\Windows\System32|3|0|0"
+    "taskmgr"  = "C:\Windows\System32\Taskmgr.exe||C:\Windows\System32|3|1|0"
+    "browser"  = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe|--kiosk https://www.youtube.com/tv --edge-kiosk-type=fullscreen|C:\Program Files (x86)\Microsoft\Edge\Application|1|3|0"
+}
 
-$Configs = @{
-    # Monitor Scripts: RunAs=3 (Admin), WaitProcess=1 (Wait for completion)
-    "cfg_setup.cfg"    = "[General]`r`nExeFilename=C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`r`nCommandLine=-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\setup_sunvdm.ps1`"`r`nStartDirectory=C:\Sunshine-Tools`r`nRunAs=3`r`nWaitProcess=1`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
-    "cfg_teardown.cfg" = "[General]`r`nExeFilename=C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`r`nCommandLine=-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\teardown_sunvdm.ps1`"`r`nStartDirectory=C:\Sunshine-Tools`r`nRunAs=3`r`nWaitProcess=1`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
+foreach ($key in $Apps.Keys) {
+    $parts = $Apps[$key].Split("|")
+    $cfgContent = "[General]`r`nExeFilename=$($parts[0])`r`nCommandLine=$($parts[1])`r`nStartDirectory=$($parts[2])`r`nRunAs=$($parts[3])`r`nWindowState=$($parts[4])`r`nWaitProcess=$($parts[5])`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nParseVarInsideCmdLine=1"
+    Write-Config "$($GlobalConfig.ToolsDir)\cfg_$key.cfg" $cfgContent
     
-    # Apps: RunAs=1 (User), WaitProcess=0 (Don't wait, let Sunshine detach), ParseVar=1
-    "cfg_steam.cfg"    = "[General]`r`nExeFilename=C:\Windows\explorer.exe`r`nCommandLine=steam://open/bigpicture`r`nStartDirectory=C:\Windows`r`nRunAs=1`r`nWaitProcess=0`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
-    "cfg_xbox.cfg"     = "[General]`r`nExeFilename=C:\Windows\explorer.exe`r`nCommandLine=shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App`r`nStartDirectory=C:\Windows`r`nRunAs=1`r`nWaitProcess=0`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
-    "cfg_playnite.cfg" = "[General]`r`nExeFilename=%LOCALAPPDATA%\Playnite\Playnite.FullscreenApp.exe`r`nStartDirectory=%LOCALAPPDATA%\Playnite`r`nRunAs=1`r`nWaitProcess=0`r`nParseVarInsideCmdLine=1`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=3"
-    "cfg_esde.cfg"     = "[General]`r`nExeFilename=%APPDATA%\EmuDeck\Emulators\ES-DE\ES-DE.exe`r`nStartDirectory=%APPDATA%\EmuDeck\Emulators\ES-DE`r`nRunAs=1`r`nWaitProcess=0`r`nParseVarInsideCmdLine=1`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=3"
-    "cfg_browser.cfg"  = "[General]`r`nExeFilename=C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`r`nCommandLine=--kiosk https://www.youtube.com/tv --edge-kiosk-type=fullscreen`r`nStartDirectory=C:\Program Files (x86)\Microsoft\Edge\Application`r`nRunAs=1`r`nWaitProcess=0`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=3"
-    
-    # Utilities: RunAs=3 (Admin)
-    "cfg_sleep.cfg"    = "[General]`r`nExeFilename=C:\Windows\System32\rundll32.exe`r`nCommandLine=powrprof.dll,SetSuspendState 0,1,0`r`nStartDirectory=C:\Windows\System32`r`nRunAs=3`r`nWaitProcess=0`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
-    "cfg_restart.cfg"  = "[General]`r`nExeFilename=C:\Windows\System32\shutdown.exe`r`nCommandLine=/r /t 0`r`nStartDirectory=C:\Windows\System32`r`nRunAs=3`r`nWaitProcess=0`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=0"
-    "cfg_taskmgr.cfg"  = "[General]`r`nExeFilename=C:\Windows\System32\Taskmgr.exe`r`nStartDirectory=C:\Windows\System32`r`nRunAs=3`r`nWaitProcess=0`r`nRunAsProcessMode=1`r`nPriorityClass=5`r`nWindowState=1"
-}
-
-foreach ($key in $Configs.Keys) {
-    Write-Config "$ToolsDir\$key" $Configs[$key]
-    # Create Batch Wrapper (Nuclear option for parser safety)
-    $batContent = "@echo off`r`n`"C:\Sunshine-Tools\AdvancedRun.exe`" /Run `"$ToolsDir\$key`""
-    Write-Config "$ToolsDir\launch_$key.bat" $batContent
-}
-
-# ---------------------------------------------------------------------------
-# 5. DOWNLOAD ARTWORK (Browser UserAgent)
-# ---------------------------------------------------------------------------
-Write-Host "Downloading App Cover Art..."
-if (-not (Test-Path $SunshineCoversDir)) { New-Item -ItemType Directory -Force -Path $SunshineCoversDir | Out-Null }
-
-$Covers = @{
-    "steam.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/512px-Steam_icon_logo.svg.png"
-    "playnite.png" = "https://raw.githubusercontent.com/JosefNemec/Playnite/master/source/Playnite/Resources/Images/AppIcon.png"
-    "xbox.png"     = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Xbox_one_logo.svg/512px-Xbox_one_logo.svg.png"
-    "esde.png"     = "https://gitlab.com/es-de/emulationstation-de/-/raw/master/resources/logo.png"
-    "taskmgr.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Task_Manager_icon_%28Windows%29.svg/512px-Task_Manager_icon_%28Windows%29.svg.png"
-    "sleep.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Oxygen480-actions-system-suspend.svg/512px-Oxygen480-actions-system-suspend.svg.png"
-    "restart.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Gnome-system-restart.svg/512px-Gnome-system-restart.svg.png"
-    "browser.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Google_Chrome_icon_%28September_2014%29.svg/512px-Google_Chrome_icon_%28September_2014%29.svg.png"
-    "desktop.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Windows_11_logo.svg/512px-Windows_11_logo.svg.png"
-}
-
-foreach ($img in $Covers.Keys) {
-    $dest = "$SunshineCoversDir\$img"
-    try {
-        Invoke-WebRequest -Uri $Covers[$img] -OutFile $dest -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        Write-Host " + Downloaded $img"
-    } catch { Write-Warning "Failed to download $img" }
+    # Batch Wrapper (Zero-Argument Trigger for Sunshine)
+    $batContent = "@echo off`r`n`"$($GlobalConfig.ToolsDir)\AdvancedRun.exe`" /Run `"$($GlobalConfig.ToolsDir)\cfg_$key.cfg`""
+    Write-Config "$($GlobalConfig.ToolsDir)\launch_$key.bat" $batContent
 }
 
 # ---------------------------------------------------------------------------
 # 6. DEPLOY SUNSHINE CONFIGS
 # ---------------------------------------------------------------------------
-Write-Host "Updating Sunshine Configuration..."
-
-if (Test-Path $SunshineConfigDir) {
-    # Pointing to BATCH wrappers to ensure Sunshine parser sees 0 arguments
+Write-Host "Updating Sunshine..."
+if (Test-Path $GlobalConfig.SunshineConfig) {
     $confContent = 'global_prep_cmd = [{"do":"C:\\Sunshine-Tools\\launch_setup.bat","undo":"C:\\Sunshine-Tools\\launch_teardown.bat"}]'
-    Write-Config "$SunshineConfigDir\sunshine.conf" $confContent
+    Write-Config "$($GlobalConfig.SunshineConfig)\sunshine.conf" $confContent
 
     $appsContent = @'
 {
@@ -263,19 +266,43 @@ if (Test-Path $SunshineConfigDir) {
   ]
 }
 '@
-    Write-Config "$SunshineConfigDir\apps.json" $appsContent
+    Write-Config "$($GlobalConfig.SunshineConfig)\apps.json" $appsContent
 }
 
 # ---------------------------------------------------------------------------
-# 7. RESTART SERVICE
+# 7. DOWNLOAD ARTWORK (Browser Headers)
 # ---------------------------------------------------------------------------
-Write-Host "Unblocking files..."
-Get-ChildItem -Path $ToolsDir -Recurse | Unblock-File
+Write-Host "Downloading Artwork..."
+if (-not (Test-Path $SunshineCoversDir)) { New-Item -ItemType Directory -Force -Path $SunshineCoversDir | Out-Null }
 
+$Covers = @{
+    "steam.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/512px-Steam_icon_logo.svg.png"
+    "playnite.png" = "https://playnite.link/applogo.png"
+    "xbox.png"     = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Xbox_one_logo.svg/512px-Xbox_one_logo.svg.png"
+    "esde.png"     = "https://gitlab.com/uploads/-/system/project/avatar/18817634/emulationstation_1024x1024.png"
+    "taskmgr.png"  = "https://upload.wikimedia.org/wikipedia/commons/a/ac/Windows_11_TASKMGR.png"
+    "sleep.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Oxygen480-actions-system-suspend.svg/480px-Oxygen480-actions-system-suspend.svg.png"
+    "restart.png"  = "https://icons.iconarchive.com/icons/oxygen-icons.org/oxygen/128/Actions-system-reboot-icon.png"
+    "browser.png"  = "https://upload.wikimedia.org/wikipedia/commons/8/87/Google_Chrome_icon_%282011%29.png"
+    "desktop.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Windows_11_logo.svg/512px-Windows_11_logo.svg.png"
+}
+
+foreach ($img in $Covers.Keys) {
+    $dest = "$SunshineCoversDir\$img"
+    try {
+        Invoke-WebRequest -Uri $Covers[$img] -OutFile $dest -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        Write-Host " + Downloaded $img"
+    } catch { Write-Warning "Skipped $img" }
+}
+
+# ---------------------------------------------------------------------------
+# 8. CLEANUP & RESTART
+# ---------------------------------------------------------------------------
 Write-Host "Restarting Sunshine..."
+Get-ChildItem -Path $GlobalConfig.ToolsDir -Recurse | Unblock-File
 Stop-Service "Sunshine Service" -ErrorAction SilentlyContinue
 Get-Process "sunshine" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 Start-Service "Sunshine Service" -ErrorAction SilentlyContinue
 
-Write-Host ">>> COMPLETE! Your Custom Sunshine Host is Ready. <<<" -ForegroundColor Green
+Write-Host ">>> INSTALLATION COMPLETE! <<<" -ForegroundColor Green
