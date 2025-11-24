@@ -1,7 +1,8 @@
 # ============================================================================
-#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (FIXED ARTWORK)
+#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (FINAL POLISH)
 #  Installs: Sunshine, Playnite, Virtual Display Driver (Signed)
 #  Configures: Hardened MST-Aware Scripts, AdvancedRun, Custom Apps
+#  Visuals: High-Quality Cover Art with Browser User-Agent Headers
 # ============================================================================
 $ErrorActionPreference = "Stop"
 $ToolsDir = "C:\Sunshine-Tools"
@@ -243,31 +244,34 @@ foreach ($key in $Apps.Keys) {
 }
 
 # ---------------------------------------------------------------------------
-# PHASE 4: DOWNLOAD COVER ART (Using Permanent Static Links)
+# PHASE 4: DOWNLOAD COVER ART (Using Browser User-Agent & Reliable Mirrors)
 # ---------------------------------------------------------------------------
 Write-Host "Downloading App Cover Art..."
 if (-not (Test-Path $SunshineCoversDir)) { New-Item -ItemType Directory -Force -Path $SunshineCoversDir | Out-Null }
 
+# Note: Using Wikimedia/Github mirrors for stability and forcing a Browser UserAgent to bypass CDN blocks.
 $Covers = @{
     "steam.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/512px-Steam_icon_logo.svg.png"
     "playnite.png" = "https://raw.githubusercontent.com/JosefNemec/Playnite/master/source/Playnite/Resources/Images/AppIcon.png"
-    "xbox.png"     = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Xbox_one_logo.svg/512px-Xbox_one_logo.svg.png"
+    "xbox.png"     = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Xbox_app_logo.svg/512px-Xbox_app_logo.svg.png"
     "esde.png"     = "https://gitlab.com/es-de/emulationstation-de/-/raw/master/resources/logo.png"
     "taskmgr.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Task_Manager_icon_%28Windows%29.svg/512px-Task_Manager_icon_%28Windows%29.svg.png"
-    "sleep.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Power_icon.svg/512px-Power_icon.svg.png"
-    "restart.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Refresh_icon.svg/512px-Refresh_icon.svg.png"
-    "browser.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Google_Chrome_icon_%28February_2022%29.svg/512px-Google_Chrome_icon_%28February_2022%29.svg.png"
+    "sleep.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Oxygen480-actions-system-suspend.svg/512px-Oxygen480-actions-system-suspend.svg.png"
+    "restart.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Gnome-system-restart.svg/512px-Gnome-system-restart.svg.png"
+    "browser.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Google_Chrome_icon_%28September_2014%29.svg/512px-Google_Chrome_icon_%28September_2014%29.svg.png"
     "desktop.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Windows_11_logo.svg/512px-Windows_11_logo.svg.png"
 }
 
 foreach ($img in $Covers.Keys) {
     $dest = "$SunshineCoversDir\$img"
-    if (-not (Test-Path $dest)) {
+    # Download if missing OR if previous download was 0 bytes (corrupt)
+    if (-not (Test-Path $dest) -or (Get-Item $dest).Length -eq 0) {
         try {
-            Invoke-WebRequest -Uri $Covers[$img] -OutFile $dest -UserAgent "Mozilla/5.0"
+            # The Magic Fix: Pretend to be Edge/Chrome to pass CDN filters
+            Invoke-WebRequest -Uri $Covers[$img] -OutFile $dest -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             Write-Host " + Downloaded $img"
         } catch {
-            Write-Warning "Failed to download $img (Using Placeholder)"
+            Write-Warning "Failed to download $img"
         }
     }
 }
