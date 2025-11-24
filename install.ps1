@@ -1,5 +1,5 @@
 # ==============================================================================
-# SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (SANE HERE-STRINGS)
+# SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (FIXED & HARDENED)
 # ==============================================================================
 
 $ErrorActionPreference = 'Stop'
@@ -178,101 +178,101 @@ foreach ($tool in $Downloads) {
 }
 
 # ---------------------------------------------------------------------------
-# 4. GENERATE SETUP / TEARDOWN SCRIPTS (SINGLE-QUOTED HERE-STRINGS)
+# 4. GENERATE SETUP / TEARDOWN SCRIPTS (inner scripts as here-strings)
 # ---------------------------------------------------------------------------
 Write-Host 'Generating setup/teardown scripts...' -ForegroundColor Cyan
 
-$setupScriptTemplate = @'
-$ErrorActionPreference = 'Stop'
+$setupScript = @"
+`$ErrorActionPreference = 'Stop'
 
-$LogPath    = Join-Path 'C:\Sunshine-Tools' 'sunvdm_log.txt'
-$ScriptPath = 'C:\Sunshine-Tools'
-$Width      = __WIDTH__
-$Height     = __HEIGHT__
-$Refresh    = __REFRESH__
+`$LogPath    = Join-Path 'C:\Sunshine-Tools' 'sunvdm_log.txt'
+`$ScriptPath = 'C:\Sunshine-Tools'
+`$Width      = $($MonitorConfig.Width)
+`$Height     = $($MonitorConfig.Height)
+`$Refresh    = $($MonitorConfig.Refresh)
 
 function Write-Log {
-    param([string]$Message)
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Add-Content -Path $LogPath -Value "$timestamp [SETUP] $Message"
+    param([string]`$Message)
+    `$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Add-Content -Path `$LogPath -Value "`$timestamp [SETUP] `$Message"
 }
 
 try {
     Write-Log 'Starting VDD setup.'
 
-    $multiTool    = Join-Path $ScriptPath 'MultiMonitorTool.exe'
-    $configBackup = Join-Path $ScriptPath 'monitor_config.cfg'
-    $csvPath      = Join-Path $ScriptPath 'current_monitors.csv'
+    `$multiTool    = Join-Path `$ScriptPath 'MultiMonitorTool.exe'
+    `$configBackup = Join-Path `$ScriptPath 'monitor_config.cfg'
+    `$csvPath      = Join-Path `$ScriptPath 'current_monitors.csv'
 
-    if (-not (Test-Path $multiTool)) {
+    if (-not (Test-Path `$multiTool)) {
         Write-Log 'MultiMonitorTool.exe not found. Aborting setup.'
         return
     }
 
     Write-Log 'Saving current monitor configuration.'
-    & $multiTool /SaveConfig "$configBackup"
+    & `$multiTool /SaveConfig "`$configBackup"
 
     # Enable any virtual display devices that are present but disabled
-    $vddDevices = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
-                   Where-Object { $_.FriendlyName -match 'MTT' -or $_.FriendlyName -match 'IddSample' -or $_.FriendlyName -match 'VDD' }
+    `$vddDevices = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
+                   Where-Object { `$_.FriendlyName -match 'MTT' -or `$_.FriendlyName -match 'IddSample' -or `$_.FriendlyName -match 'VDD' }
 
-    if (-not $vddDevices) {
+    if (-not `$vddDevices) {
         Write-Log 'No virtual display devices found. Aborting setup.'
         return
     }
 
-    foreach ($dev in $vddDevices) {
-        if ($dev.Status -ne 'OK') {
-            Write-Log "Enabling virtual display device: $($dev.FriendlyName)"
-            Enable-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    foreach (`$dev in `$vddDevices) {
+        if (`$dev.Status -ne 'OK') {
+            Write-Log "Enabling virtual display device: `$(`$dev.FriendlyName)"
+            Enable-PnpDevice -InstanceId `$dev.InstanceId -Confirm:`$false -ErrorAction SilentlyContinue | Out-Null
         }
     }
 
     Write-Log 'Waiting for virtual display to appear in MultiMonitorTool output...'
-    $maxTries = 40
-    $virtual  = $null
+    `$maxTries = 40
+    `$virtual  = $null
 
-    for ($i = 0; $i -lt $maxTries -and -not $virtual; $i++) {
-        & $multiTool /scomma "$csvPath"
-        if (Test-Path $csvPath) {
-            $monitors = Import-Csv $csvPath
-            $virtual  = $monitors | Where-Object { $_.MonitorID -match 'MTT' -or $_.MonitorName -match 'VDD' -or $_.Name -match 'VDD' }
+    for (`$i = 0; `$i -lt `$maxTries -and -not `$virtual; `$i++) {
+        & `$multiTool /scomma "`$csvPath"
+        if (Test-Path `$csvPath) {
+            `$monitors = Import-Csv `$csvPath
+            `$virtual  = `$monitors | Where-Object { `$_.MonitorID -match 'MTT' -or `$_.MonitorName -match 'VDD' -or `$_.Name -match 'VDD' }
         }
-        if (-not $virtual) {
+        if (-not `$virtual) {
             Start-Sleep -Milliseconds 250
         }
     }
 
-    if (-not $virtual) {
+    if (-not `$virtual) {
         Write-Log 'Virtual display not found after timeout. Restoring original configuration.'
-        & $multiTool /LoadConfig "$configBackup"
+        & `$multiTool /LoadConfig "`$configBackup"
         return
     }
 
-    $targetName = $virtual[0].Name
-    Write-Log "Using virtual display as primary: $targetName"
+    `$targetName = `$virtual[0].Name
+    Write-Log "Using virtual display as primary: `$targetName"
 
-    & $multiTool /SetPrimary "$targetName"
-    & $multiTool /Enable "$targetName"
+    & `$multiTool /SetPrimary "`$targetName"
+    & `$multiTool /Enable "`$targetName"
 
     Write-Log 'Disabling other active displays.'
-    & $multiTool /scomma "$csvPath"
-    $monitors = Import-Csv $csvPath
+    & `$multiTool /scomma "`$csvPath"
+    `$monitors = Import-Csv `$csvPath
 
-    foreach ($m in $monitors) {
-        if ($m.Active -eq 'Yes' -and $m.Name -ne $targetName) {
-            Write-Log "Disabling display: $($m.Name)"
-            & $multiTool /Disable "$($m.Name)"
+    foreach (`$m in `$monitors) {
+        if (`$m.Active -eq 'Yes' -and `$m.Name -ne `$targetName) {
+            Write-Log "Disabling display: `$(`$m.Name)"
+            & `$multiTool /Disable "`$(`$m.Name)"
         }
     }
 
     # Set resolution using WindowsDisplayManager (if present)
-    $wdmFolder = Join-Path $ScriptPath 'WindowsDisplayManager'
-    $wdmExe    = Get-ChildItem -Path $wdmFolder -Recurse -Filter 'WindowsDisplayManager.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    `$wdmFolder = Join-Path `$ScriptPath 'WindowsDisplayManager'
+    `$wdmExe    = Get-ChildItem -Path `$wdmFolder -Recurse -Filter 'WindowsDisplayManager.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 
-    if ($wdmExe) {
-        Write-Log "Setting VDD resolution to $Width x $Height @ $Refresh Hz"
-        & $($wdmExe.FullName) set-mode -w $Width -h $Height -r $Refresh -d 0
+    if (`$wdmExe) {
+        Write-Log "Setting VDD resolution to `$Width x `$Height @ `$Refresh Hz"
+        & `$(`$wdmExe.FullName) set-mode -w `$Width -h `$Height -r `$Refresh -d 0
     } else {
         Write-Log 'WindowsDisplayManager.exe not found. Skipping resolution step.'
     }
@@ -280,49 +280,44 @@ try {
     Write-Log 'VDD setup completed successfully.'
 }
 catch {
-    Write-Log "ERROR: $($_.Exception.Message)"
+    Write-Log "ERROR: `$($_.Exception.Message)"
 }
-'@
-
-$setupScript = $setupScriptTemplate.
-    Replace('__WIDTH__',  $MonitorConfig.Width).
-    Replace('__HEIGHT__', $MonitorConfig.Height).
-    Replace('__REFRESH__',$MonitorConfig.Refresh)
+"@
 
 Write-Config "$ToolsDir\setup_sunvdm.ps1" $setupScript
 
-$teardownScript = @'
-$ErrorActionPreference = 'Stop'
+$teardownScript = @"
+`$ErrorActionPreference = 'Stop'
 
-$LogPath    = Join-Path 'C:\Sunshine-Tools' 'sunvdm_log.txt'
-$ScriptPath = 'C:\Sunshine-Tools'
+`$LogPath    = Join-Path 'C:\Sunshine-Tools' 'sunvdm_log.txt'
+`$ScriptPath = 'C:\Sunshine-Tools'
 
 function Write-Log {
-    param([string]$Message)
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Add-Content -Path $LogPath -Value "$timestamp [TEARDOWN] $Message"
+    param([string]`$Message)
+    `$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Add-Content -Path `$LogPath -Value "`$timestamp [TEARDOWN] `$Message"
 }
 
 try {
     Write-Log 'Starting VDD teardown.'
 
-    $multiTool    = Join-Path $ScriptPath 'MultiMonitorTool.exe'
-    $configBackup = Join-Path $ScriptPath 'monitor_config.cfg'
+    `$multiTool    = Join-Path `$ScriptPath 'MultiMonitorTool.exe'
+    `$configBackup = Join-Path `$ScriptPath 'monitor_config.cfg'
 
     # Disable any virtual display devices that are enabled
-    $vddDevices = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
-                   Where-Object { $_.FriendlyName -match 'MTT' -or $_.FriendlyName -match 'IddSample' -or $_.FriendlyName -match 'VDD' }
+    `$vddDevices = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
+                   Where-Object { `$_.FriendlyName -match 'MTT' -or `$_.FriendlyName -match 'IddSample' -or `$_.FriendlyName -match 'VDD' }
 
-    foreach ($dev in $vddDevices) {
-        if ($dev.Status -eq 'OK') {
-            Write-Log "Disabling virtual display device: $($dev.FriendlyName)"
-            Disable-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    foreach (`$dev in `$vddDevices) {
+        if (`$dev.Status -eq 'OK') {
+            Write-Log "Disabling virtual display device: `$(`$dev.FriendlyName)"
+            Disable-PnpDevice -InstanceId `$dev.InstanceId -Confirm:`$false -ErrorAction SilentlyContinue | Out-Null
         }
     }
 
-    if (Test-Path $multiTool -and Test-Path $configBackup) {
+    if (Test-Path `$multiTool -and Test-Path `$configBackup) {
         Write-Log 'Restoring original monitor configuration.'
-        & $multiTool /LoadConfig "$configBackup"
+        & `$multiTool /LoadConfig "`$configBackup"
     } else {
         Write-Log 'MultiMonitorTool or backup config not found. Skipping restore.'
     }
@@ -330,9 +325,9 @@ try {
     Write-Log 'VDD teardown completed.'
 }
 catch {
-    Write-Log "ERROR: $($_.Exception.Message)"
+    Write-Log "ERROR: `$($_.Exception.Message)"
 }
-'@
+"@
 
 Write-Config "$ToolsDir\teardown_sunvdm.ps1" $teardownScript
 
@@ -415,9 +410,11 @@ if (Test-Path $SunshineConfigDir) {
     # Backup existing config files once
     foreach ($file in @('sunshine.conf','apps.json')) {
         $path = Join-Path $SunshineConfigDir $file
-        if (Test-Path $path -and -not (Test-Path "$path.bak")) {
-            Copy-Item $path "$path.bak" -Force
-            Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
+        if (Test-Path $path) {
+            if (-not (Test-Path "$path.bak")) {
+                Copy-Item $path "$path.bak" -Force
+                Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
+            }
         }
     }
 
