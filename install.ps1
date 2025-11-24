@@ -392,40 +392,94 @@ Write-Host 'Updating Sunshine Configuration...' -ForegroundColor Cyan
 
 if (Test-Path $SunshineConfigDir) {
 
-    # Backup existing config files once
+    # Back up existing config files once
     foreach ($file in @('sunshine.conf','apps.json')) {
         $path = Join-Path $SunshineConfigDir $file
-        if (Test-Path $path -and -not (Test-Path "$path.bak")) {
-            Copy-Item $path "$path.bak" -Force
-            Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
+
+        if (Test-Path $path) {
+            if (-not (Test-Path "$path.bak")) {
+                Copy-Item $path "$path.bak" -Force
+                Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
+            }
         }
     }
 
-    # global_prep_cmd: call PowerShell scripts directly via cmd, elevated
+    # global_prep_cmd: call the PowerShell setup/teardown scripts directly
+    # (no BAT files), run elevated, log to sunvdm.log
     $confContent = 'global_prep_cmd = [{"do":"cmd /C powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\\\Sunshine-Tools\\\\setup_sunvdm.ps1\" > \"C:\\\\Sunshine-Tools\\\\sunvdm.log\" 2>&1","undo":"cmd /C powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\\\Sunshine-Tools\\\\teardown_sunvdm.ps1\" >> \"C:\\\\Sunshine-Tools\\\\sunvdm.log\" 2>&1","elevated":true}]'
     Write-Config "$SunshineConfigDir\sunshine.conf" $confContent
 
-    # apps.json: call AdvancedRun configs directly (no batch files)
+    # apps.json: call AdvancedRun *directly* with each cfg_*.cfg
+    # (no launch_*.bat wrappers)
     $appsContent = @'
 {
   "env": {},
   "apps": [
     { "name": "Desktop", "image-path": "covers\\desktop.png" },
-    { "name": "Steam Big Picture", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_steam.cfg", "undo": "" } ], "image-path": "covers\\steam.png" },
-    { "name": "Xbox (Game Pass)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_xbox.cfg", "undo": "" } ], "image-path": "covers\\xbox.png" },
-    { "name": "Playnite", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_playnite.cfg", "undo": "" } ], "image-path": "covers\\playnite.png" },
-    { "name": "EmulationStation", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_esde.cfg", "undo": "" } ], "image-path": "covers\\esde.png" },
-    { "name": "YouTube TV", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_browser.cfg", "undo": "" } ], "image-path": "covers\\browser.png" },
-    { "name": "Task Manager (Rescue)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_taskmgr.cfg", "undo": "" } ], "image-path": "covers\\taskmgr.png" },
-    { "name": "Sleep PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_sleep.cfg", "undo": "" } ], "image-path": "covers\\sleep.png" },
-    { "name": "Restart PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_restart.cfg", "undo": "" } ], "image-path": "covers\\restart.png" }
+    {
+      "name": "Steam Big Picture",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_steam.cfg", "undo": "" } ],
+      "image-path": "covers\\steam.png"
+    },
+    {
+      "name": "Xbox (Game Pass)",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_xbox.cfg", "undo": "" } ],
+      "image-path": "covers\\xbox.png"
+    },
+    {
+      "name": "Playnite",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_playnite.cfg", "undo": "" } ],
+      "image-path": "covers\\playnite.png"
+    },
+    {
+      "name": "EmulationStation",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_esde.cfg", "undo": "" } ],
+      "image-path": "covers\\esde.png"
+    },
+    {
+      "name": "YouTube TV",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_browser.cfg", "undo": "" } ],
+      "image-path": "covers\\browser.png"
+    },
+    {
+      "name": "Task Manager (Rescue)",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_taskmgr.cfg", "undo": "" } ],
+      "image-path": "covers\\taskmgr.png"
+    },
+    {
+      "name": "Sleep PC",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_sleep.cfg", "undo": "" } ],
+      "image-path": "covers\\sleep.png"
+    },
+    {
+      "name": "Restart PC",
+      "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_restart.cfg", "undo": "" } ],
+      "image-path": "covers\\restart.png"
+    }
   ]
 }
 '@
     Write-Config "$SunshineConfigDir\apps.json" $appsContent
+
 } else {
     Write-Warning "Sunshine config directory '$SunshineConfigDir' not found. Skipping Sunshine config update."
 }
+
+# ---------------------------------------------------------------------------
+# 8. FINAL CLEANUP & RESTART
+# ---------------------------------------------------------------------------
+Write-Host 'Unblocking files...' -ForegroundColor Cyan
+Get-ChildItem -Path $ToolsDir -Recurse -ErrorAction SilentlyContinue |
+    Unblock-File -ErrorAction SilentlyContinue
+
+Write-Host 'Restarting Sunshine...' -ForegroundColor Cyan
+Stop-Service 'Sunshine Service' -ErrorAction SilentlyContinue
+Get-Process 'sunshine' -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 2
+Start-Service 'Sunshine Service' -ErrorAction SilentlyContinue
+
+Write-Host '>>> COMPLETE! Your Custom Sunshine Host is Ready. <<<' -ForegroundColor Green
+
 
 # ---------------------------------------------------------------------------
 # 8. FINAL CLEANUP & RESTART
@@ -440,3 +494,4 @@ Start-Sleep -Seconds 2
 Start-Service 'Sunshine Service' -ErrorAction SilentlyContinue
 
 Write-Host '>>> COMPLETE! Your Custom Sunshine Host is Ready. <<<' -ForegroundColor Green
+
