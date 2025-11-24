@@ -1,184 +1,135 @@
 # ============================================================================
-#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (SENIOR ENGINEER EDITION)
-#  v2.0 - Optimized, Modular, and Configurable
+#  SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (FIXED ARTWORK)
+#  Installs: Sunshine, Playnite, Virtual Display Driver (Signed)
+#  Configures: Hardened MST-Aware Scripts, AdvancedRun, Custom Apps
 # ============================================================================
-
-# --- [USER CONFIGURATION AREA] ----------------------------------------------
-# EDIT THESE SETTINGS TO CUSTOMIZE YOUR INSTALLATION
-# ----------------------------------------------------------------------------
-
-$GlobalConfig = @{
-    # Target Resolution & Refresh Rate for Virtual Display
-    ResolutionWidth  = 3840
-    ResolutionHeight = 2160
-    RefreshRate      = 60
-
-    # Directory Paths
-    ToolsDir         = "C:\Sunshine-Tools"
-    SunshineConfig   = "C:\Program Files\Sunshine\config"
-    VddInstallDir    = "C:\VirtualDisplayDriver"
-}
-
-# Apps to configure in Sunshine (Add/Remove lines here)
-# Format: "ConfigName" = "ExePath | Arguments | StartDir | RunAs(0=User,1=Admin) | Window(0=Hidden,3=Max)"
-$AppList = @{
-    "cfg_setup.cfg"    = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\setup_sunvdm.ps1`"|C:\Sunshine-Tools|1|0"
-    "cfg_teardown.cfg" = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\teardown_sunvdm.ps1`"|C:\Sunshine-Tools|1|0"
-    "cfg_steam.cfg"    = "C:\Windows\explorer.exe|steam://open/bigpicture|C:\Windows|0|3"
-    "cfg_xbox.cfg"     = "C:\Windows\explorer.exe|shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App|C:\Windows|0|3"
-    "cfg_playnite.cfg" = "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe||$env:LOCALAPPDATA\Playnite|0|3"
-    "cfg_esde.cfg"     = "$env:APPDATA\EmuDeck\Emulators\ES-DE\ES-DE.exe||$env:APPDATA\EmuDeck\Emulators\ES-DE|0|3"
-    "cfg_sleep.cfg"    = "C:\Windows\System32\rundll32.exe|powrprof.dll,SetSuspendState 0,1,0|C:\Windows\System32|1|0"
-    "cfg_restart.cfg"  = "C:\Windows\System32\shutdown.exe|/r /t 0|C:\Windows\System32|1|0"
-    "cfg_taskmgr.cfg"  = "C:\Windows\System32\Taskmgr.exe||C:\Windows\System32|1|1"
-    "cfg_browser.cfg"  = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe|--kiosk https://www.youtube.com/tv --edge-kiosk-type=fullscreen|C:\Program Files (x86)\Microsoft\Edge\Application|0|3"
-}
-
-# Cover Art to Download (Filename = URL)
-$CoverArt = @{
-    "steam.png"    = "https://cdn2.steamgriddb.com/grid/577720666599d0705bc8d2b939a0829c.png"
-    "playnite.png" = "https://cdn2.steamgriddb.com/grid/5da02073095338066242322543599999.png"
-    "xbox.png"     = "https://cdn2.steamgriddb.com/grid/52654a95df6d3e3d4b7ca34742004e9e.png"
-    "esde.png"     = "https://cdn2.steamgriddb.com/grid/396953c65f239ab6079899df7be95935.png"
-    "taskmgr.png"  = "https://cdn2.steamgriddb.com/grid/01b9d2062d0cb344df84b96740bf9a93.png"
-    "sleep.png"    = "https://cdn2.steamgriddb.com/icon/c770e3cb26e462833e5407d373420327.png"
-    "restart.png"  = "https://cdn2.steamgriddb.com/icon/225509cc69cb00262e622689762dfc08.png"
-    "browser.png"  = "https://cdn2.steamgriddb.com/grid/1a787993f32b41c2408cf9244a2e33b6.png"
-    "desktop.png"  = "https://cdn2.steamgriddb.com/grid/7e83e20758d6a47e2d36f6b0d0b00ba8.png"
-}
-
-# --- [END USER CONFIGURATION] -----------------------------------------------
-
 $ErrorActionPreference = "Stop"
+$ToolsDir = "C:\Sunshine-Tools"
+$SunshineConfigDir = "C:\Program Files\Sunshine\config"
+$SunshineCoversDir = "$SunshineConfigDir\covers"
 
-# Helper Function: Download and Extract Tools
-function Install-Tool {
-    param (
-        [string]$Name,
-        [string]$Url,
-        [string]$CheckFile
-    )
-    if (-not (Test-Path $CheckFile)) {
-        Write-Host "Downloading $Name..." -ForegroundColor Cyan
-        $zipPath = Join-Path $env:TEMP "$Name.zip"
-        try {
-            Invoke-WebRequest -Uri $Url -OutFile $zipPath
-            Expand-Archive -Path $zipPath -DestinationPath $GlobalConfig.ToolsDir -Force
-            Remove-Item $zipPath -Force
-        } catch {
-            Write-Warning "Failed to download $Name. Check internet connection."
-        }
-    }
-}
-
-# Check Admin Rights
+# Check Admin
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Error "Elevation Required: Please run this script as Administrator."
+    Write-Error "Please run this script as Administrator!"
     exit
 }
 
-Write-Host ">>> STARTING AUTOMATED DEPLOYMENT..." -ForegroundColor Green
+Write-Host ">>> STARTING UNIFIED INSTALLATION..." -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# PHASE 1: SOFTWARE INSTALLATION
+# PHASE 1: CORE SOFTWARE INSTALLATION
 # ---------------------------------------------------------------------------
 
-# Install Sunshine
+# 1. SUNSHINE
 if (-not (Get-Service "Sunshine Service" -ErrorAction SilentlyContinue)) {
     Write-Host "Installing Sunshine..." -ForegroundColor Yellow
     winget install --id LizardByte.Sunshine -e --silent --accept-package-agreements --accept-source-agreements
     Start-Sleep -Seconds 5
+} else {
+    Write-Host "Sunshine is already installed." -ForegroundColor Green
 }
 
-# Install Playnite
+# 2. PLAYNITE
 if (-not (Test-Path "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe")) {
     Write-Host "Installing Playnite..." -ForegroundColor Yellow
     winget install --id Playnite.Playnite -e --silent --accept-package-agreements --accept-source-agreements
+} else {
+    Write-Host "Playnite is already installed." -ForegroundColor Green
 }
 
-# Install VDD (Virtual Display Driver)
+# 3. VIRTUAL DISPLAY DRIVER (Signed)
 $vddCheck = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match "Idd" -or $_.FriendlyName -match "MTT" }
 if (-not $vddCheck) {
     Write-Host "Installing Virtual Display Driver..." -ForegroundColor Yellow
     $vddUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/24.12.24/Signed-Driver-v24.12.24-x64.zip"
-    $vddZip = Join-Path $env:TEMP "vdd_driver.zip"
+    $vddZip = "$env:TEMP\vdd_driver.zip"
+    $vddDir = "C:\VirtualDisplayDriver"
     
     Invoke-WebRequest -Uri $vddUrl -OutFile $vddZip
     
-    if (Test-Path $GlobalConfig.VddInstallDir) { Remove-Item $GlobalConfig.VddInstallDir -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path $GlobalConfig.VddInstallDir | Out-Null
+    if (Test-Path $vddDir) { Remove-Item $vddDir -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $vddDir | Out-Null
     
-    $tempExtract = Join-Path $env:TEMP "vdd_extract"
+    $tempExtract = "$env:TEMP\vdd_extract"
     if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }
     Expand-Archive -Path $vddZip -DestinationPath $tempExtract -Force
     
-    Get-ChildItem -Path $tempExtract -Recurse -File | Copy-Item -Destination $GlobalConfig.VddInstallDir -Force
+    Get-ChildItem -Path $tempExtract -Recurse -File | Copy-Item -Destination $vddDir -Force
     
-    $infFile = Join-Path $GlobalConfig.VddInstallDir "MttVDD.inf"
+    Write-Host "Registering Driver..."
+    $infFile = "$vddDir\MttVDD.inf"
     if (Test-Path $infFile) {
-        Write-Host "Registering Driver..."
         pnputil /add-driver $infFile /install
+        Write-Host "VDD Installed successfully." -ForegroundColor Green
     } else {
-        Write-Warning "Driver INF not found. Manual install required in $($GlobalConfig.VddInstallDir)"
+        Write-Warning "Could not find MttVDD.inf. Manual install may be required from $vddDir"
     }
+} else {
+    Write-Host "Virtual Display Driver is already present." -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
-# PHASE 2: TOOL DEPLOYMENT
+# PHASE 2: CUSTOM TOOLS DEPLOYMENT
 # ---------------------------------------------------------------------------
-if (-not (Test-Path $GlobalConfig.ToolsDir)) { New-Item -ItemType Directory -Force -Path $GlobalConfig.ToolsDir | Out-Null }
 
-Install-Tool -Name "MultiMonitorTool" -Url "https://www.nirsoft.net/utils/multimonitortool-x64.zip" -CheckFile "$($GlobalConfig.ToolsDir)\MultiMonitorTool.exe"
-Install-Tool -Name "AdvancedRun"      -Url "https://www.nirsoft.net/utils/advancedrun-x64.zip"      -CheckFile "$($GlobalConfig.ToolsDir)\AdvancedRun.exe"
+if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null }
 
-# WindowsDisplayManager (GitHub Zip handling)
-if (-not (Test-Path "$($GlobalConfig.ToolsDir)\WindowsDisplayManager")) {
-    Write-Host "Downloading WindowsDisplayManager..."
-    $wdmZip = Join-Path $env:TEMP "wdm.zip"
-    Invoke-WebRequest -Uri "https://github.com/patrick-theprogrammer/WindowsDisplayManager/archive/refs/heads/master.zip" -OutFile $wdmZip
-    Expand-Archive -Path $wdmZip -DestinationPath $GlobalConfig.ToolsDir -Force
-    Remove-Item $wdmZip
-    
-    $gitHubFolder = Join-Path $GlobalConfig.ToolsDir "WindowsDisplayManager-master"
-    $targetFolder = Join-Path $GlobalConfig.ToolsDir "WindowsDisplayManager"
-    if (Test-Path $gitHubFolder) {
-        Rename-Item -Path $gitHubFolder -NewName "WindowsDisplayManager" -Force
+$Downloads = @(
+    @{ Name="MultiMonitorTool"; Url="https://www.nirsoft.net/utils/multimonitortool-x64.zip" },
+    @{ Name="AdvancedRun";      Url="https://www.nirsoft.net/utils/advancedrun-x64.zip" },
+    @{ Name="WinDisplayMgr";    Url="https://github.com/patrick-theprogrammer/WindowsDisplayManager/archive/refs/heads/master.zip" }
+)
+
+foreach ($tool in $Downloads) {
+    $zipPath = "$ToolsDir\$($tool.Name).zip"
+    if (-not (Test-Path "$ToolsDir\$($tool.Name).exe") -and -not (Test-Path "$ToolsDir\WindowsDisplayManager")) {
+        Write-Host "Downloading $($tool.Name)..."
+        Invoke-WebRequest -Uri $tool.Url -OutFile $zipPath
+        Expand-Archive -Path $zipPath -DestinationPath $ToolsDir -Force
+        Remove-Item $zipPath -Force
     }
 }
 
-# ---------------------------------------------------------------------------
-# PHASE 3: GENERATE CONFIGS (Dynamic Injection)
-# ---------------------------------------------------------------------------
-Write-Host "Generating Custom Scripts..."
+$gitHubFolder = Join-Path $ToolsDir "WindowsDisplayManager-master"
+$targetFolder = Join-Path $ToolsDir "WindowsDisplayManager"
+if (Test-Path $gitHubFolder) {
+    if (Test-Path $targetFolder) { Remove-Item $targetFolder -Recurse -Force }
+    Rename-Item -Path $gitHubFolder -NewName "WindowsDisplayManager"
+}
 
-# 1. Setup Script Template
-$SetupTemplate = @'
-$LogPath = "{{TOOLS_DIR}}\sunvdm_log.txt"
+# ---------------------------------------------------------------------------
+# PHASE 3: WRITE CONFIGURATION FILES
+# ---------------------------------------------------------------------------
+Write-Host "Writing Custom Configurations..."
+
+# 1. Setup Script
+$SetupScript = @'
+$LogPath = "C:\Sunshine-Tools\sunvdm_log.txt"
 Start-Transcript -Path $LogPath -Append
 function Log-Message { param([string]$msg) Write-Host "$(Get-Date -Format 'HH:mm:ss') - $msg" }
 
 try {
     Log-Message "--- SETUP STARTED ---"
-    $ScriptPath = "{{TOOLS_DIR}}"
+    $ScriptPath = "C:\Sunshine-Tools"
     $MultiTool = Join-Path $ScriptPath "MultiMonitorTool.exe"
     $ConfigBackup = Join-Path $ScriptPath "monitor_config.cfg"
     $CsvPath = Join-Path $ScriptPath "current_monitors.csv"
 
-    # CONFIGURATION INJECTED BY INSTALLER
-    $width = {{WIDTH}}; $height = {{HEIGHT}}; $fps = {{FPS}}
+    # 1. HARDCODED TARGET (Default: 4K 60FPS)
+    $width = 3840; $height = 2160; $fps = 60
     Log-Message "Target: $width x $height @ $fps"
 
-    # Backup
+    # 2. Backup Current State
     Start-Process -FilePath $MultiTool -ArgumentList "/SaveConfig `"$ConfigBackup`"" -Wait -WindowStyle Hidden
     if (-not (Test-Path $ConfigBackup)) { Throw "Config backup failed." }
 
-    # Enable VDD
+    # 3. Enable Virtual Display
     Log-Message "Enabling VDD..."
     $vdd_pnp = Get-PnpDevice -Class Display | Where-Object { $_.FriendlyName -match "Idd" -or $_.FriendlyName -match "MTT" -or $_.FriendlyName -match "Virtual Display" } | Select-Object -First 1
     if (-not $vdd_pnp) { Throw "Virtual Display Driver not found." }
     $vdd_pnp | Enable-PnpDevice -Confirm:$false -ErrorAction Stop
 
-    # Wait for Registration
+    # 4. Wait for Registration
     Log-Message "Waiting for VDD..."
     $max_retries = 20
     $virtual_mon = $null
@@ -193,16 +144,17 @@ try {
     } while ($max_retries-- -gt 0)
     if (-not $virtual_mon) { Throw "Timeout: VDD never appeared." }
 
-    # Switch Primary
+    # 5. Switch Primary
     Log-Message "Setting Primary: $($virtual_mon.Name)"
     Start-Process -FilePath $MultiTool -ArgumentList "/SetPrimary $($virtual_mon.Name)" -Wait -WindowStyle Hidden
     Start-Process -FilePath $MultiTool -ArgumentList "/Enable $($virtual_mon.Name)" -Wait -WindowStyle Hidden
 
-    # Disable Physical (MST Optimized)
+    # 6. Disable Physical (MST Optimized)
     Log-Message "Disabling Physical Monitors..."
     Start-Process -FilePath $MultiTool -ArgumentList "/scomma `"$CsvPath`"" -Wait -WindowStyle Hidden
     $monitors = Import-Csv $CsvPath
-    # Disable Display 5 (Hub) LAST
+    
+    # Disable Display 5 (Hub) LAST to prevent MST crash
     $sorted = $monitors | Sort-Object { if ($_.Name -eq "\\.\DISPLAY5") { 1 } else { 0 } }
 
     foreach ($m in $sorted) {
@@ -212,7 +164,7 @@ try {
         }
     }
 
-    # Resolution
+    # 7. Resolution
     Import-Module (Join-Path $ScriptPath "WindowsDisplayManager") -ErrorAction SilentlyContinue
     $displays = WindowsDisplayManager\GetAllPotentialDisplays
     $vdDisplay = $displays | Where-Object { $_.source.description -eq $vdd_pnp.FriendlyName } | Select-Object -First 1
@@ -229,10 +181,7 @@ try {
 }
 Stop-Transcript
 '@
-
-# Inject Config Values
-$FinalSetupScript = $SetupTemplate.Replace("{{WIDTH}}", $GlobalConfig.ResolutionWidth).Replace("{{HEIGHT}}", $GlobalConfig.ResolutionHeight).Replace("{{FPS}}", $GlobalConfig.RefreshRate).Replace("{{TOOLS_DIR}}", $GlobalConfig.ToolsDir)
-$FinalSetupScript | Set-Content "$($GlobalConfig.ToolsDir)\setup_sunvdm.ps1" -Encoding UTF8
+$SetupScript | Set-Content "$ToolsDir\setup_sunvdm.ps1" -Encoding UTF8
 
 # 2. Teardown Script
 $TeardownScript = @'
@@ -246,15 +195,18 @@ try {
     $MultiTool = Join-Path $ScriptPath "MultiMonitorTool.exe"
     $ConfigBackup = Join-Path $ScriptPath "monitor_config.cfg"
 
+    # 1. Disable VDD
     Log-Message "Disabling VDD..."
     $vdd_pnp = Get-PnpDevice -Class Display | Where-Object { $_.FriendlyName -match "Idd" -or $_.FriendlyName -match "MTT" -or $_.FriendlyName -match "Virtual Display" } | Select-Object -First 1
     if ($vdd_pnp) { $vdd_pnp | Disable-PnpDevice -Confirm:$false -ErrorAction Continue }
 
+    # 2. Restore Physical
     Log-Message "Restoring Config..."
     if (Test-Path $ConfigBackup) {
         Start-Process -FilePath $MultiTool -ArgumentList "/LoadConfig `"$ConfigBackup`"" -Wait -WindowStyle Hidden
     }
 
+    # 3. Enforce Hub Primary (Display 5)
     Log-Message "Enforcing Primary: \\.\DISPLAY5"
     Start-Process -FilePath $MultiTool -ArgumentList "/SetPrimary \\.\DISPLAY5" -Wait -WindowStyle Hidden
     Start-Process -FilePath $MultiTool -ArgumentList "/Enable \\.\DISPLAY5" -Wait -WindowStyle Hidden
@@ -268,26 +220,67 @@ try {
 }
 Stop-Transcript
 '@
-$TeardownScript | Set-Content "$($GlobalConfig.ToolsDir)\teardown_sunvdm.ps1" -Encoding UTF8
+$TeardownScript | Set-Content "$ToolsDir\teardown_sunvdm.ps1" -Encoding UTF8
 
 # 3. AdvancedRun Configs
-foreach ($key in $AppList.Keys) {
-    $parts = $AppList[$key].Split("|")
+$Apps = @{
+    "cfg_setup.cfg"    = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\setup_sunvdm.ps1`"|C:\Sunshine-Tools|1|0"
+    "cfg_teardown.cfg" = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"C:\Sunshine-Tools\teardown_sunvdm.ps1`"|C:\Sunshine-Tools|1|0"
+    "cfg_steam.cfg"    = "C:\Windows\explorer.exe|steam://open/bigpicture|C:\Windows|0|3"
+    "cfg_xbox.cfg"     = "C:\Windows\explorer.exe|shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App|C:\Windows|0|3"
+    "cfg_playnite.cfg" = "$env:LOCALAPPDATA\Playnite\Playnite.FullscreenApp.exe||$env:LOCALAPPDATA\Playnite|0|3"
+    "cfg_esde.cfg"     = "$env:APPDATA\EmuDeck\Emulators\ES-DE\ES-DE.exe||$env:APPDATA\EmuDeck\Emulators\ES-DE|0|3"
+    "cfg_sleep.cfg"    = "C:\Windows\System32\rundll32.exe|powrprof.dll,SetSuspendState 0,1,0|C:\Windows\System32|1|0"
+    "cfg_restart.cfg"  = "C:\Windows\System32\shutdown.exe|/r /t 0|C:\Windows\System32|1|0"
+    "cfg_taskmgr.cfg"  = "C:\Windows\System32\Taskmgr.exe||C:\Windows\System32|1|1"
+    "cfg_browser.cfg"  = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe|--kiosk https://www.youtube.com/tv --edge-kiosk-type=fullscreen|C:\Program Files (x86)\Microsoft\Edge\Application|0|3"
+}
+
+foreach ($key in $Apps.Keys) {
+    $parts = $Apps[$key].Split("|")
     $content = "[General]`r`nExeFilename=$($parts[0])`r`nCommandLine=$($parts[1])`r`nStartDirectory=$($parts[2])`r`nRunAs=$($parts[3])`r`nRunAsProcessMode=1`r`nPriorityClass=3`r`nWindowState=$($parts[4])"
-    $content | Set-Content "$($GlobalConfig.ToolsDir)\$key"
+    $content | Set-Content "$ToolsDir\$key"
 }
 
 # ---------------------------------------------------------------------------
-# PHASE 4: SUNSHINE CONFIGURATION
+# PHASE 4: DOWNLOAD COVER ART (Using Permanent Static Links)
 # ---------------------------------------------------------------------------
-Write-Host "Applying Sunshine Settings..."
+Write-Host "Downloading App Cover Art..."
+if (-not (Test-Path $SunshineCoversDir)) { New-Item -ItemType Directory -Force -Path $SunshineCoversDir | Out-Null }
 
-if (Test-Path $GlobalConfig.SunshineConfig) {
-    # Sunshine Config
+$Covers = @{
+    "steam.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/512px-Steam_icon_logo.svg.png"
+    "playnite.png" = "https://raw.githubusercontent.com/JosefNemec/Playnite/master/source/Playnite/Resources/Images/AppIcon.png"
+    "xbox.png"     = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Xbox_one_logo.svg/512px-Xbox_one_logo.svg.png"
+    "esde.png"     = "https://gitlab.com/es-de/emulationstation-de/-/raw/master/resources/logo.png"
+    "taskmgr.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Task_Manager_icon_%28Windows%29.svg/512px-Task_Manager_icon_%28Windows%29.svg.png"
+    "sleep.png"    = "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Power_icon.svg/512px-Power_icon.svg.png"
+    "restart.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Refresh_icon.svg/512px-Refresh_icon.svg.png"
+    "browser.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Google_Chrome_icon_%28February_2022%29.svg/512px-Google_Chrome_icon_%28February_2022%29.svg.png"
+    "desktop.png"  = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Windows_11_logo.svg/512px-Windows_11_logo.svg.png"
+}
+
+foreach ($img in $Covers.Keys) {
+    $dest = "$SunshineCoversDir\$img"
+    if (-not (Test-Path $dest)) {
+        try {
+            Invoke-WebRequest -Uri $Covers[$img] -OutFile $dest -UserAgent "Mozilla/5.0"
+            Write-Host " + Downloaded $img"
+        } catch {
+            Write-Warning "Failed to download $img (Using Placeholder)"
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# PHASE 5: DEPLOY SUNSHINE CONFIG
+# ---------------------------------------------------------------------------
+Write-Host "Updating Sunshine Configuration..."
+
+if (Test-Path $SunshineConfigDir) {
     $confContent = 'global_prep_cmd = [{"do":"C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_setup.cfg","undo":"C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_teardown.cfg"}]'
-    $confContent | Set-Content "$($GlobalConfig.SunshineConfig)\sunshine.conf" -Encoding UTF8
+    $confContent | Set-Content "$SunshineConfigDir\sunshine.conf" -Encoding UTF8
 
-    # Apps JSON
     $appsContent = @'
 {
   "env": {},
@@ -297,38 +290,26 @@ if (Test-Path $GlobalConfig.SunshineConfig) {
     { "name": "Xbox (Game Pass)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_xbox.cfg", "undo": "" } ], "image-path": "xbox.png" },
     { "name": "Playnite", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_playnite.cfg", "undo": "" } ], "image-path": "playnite.png" },
     { "name": "EmulationStation", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_esde.cfg", "undo": "" } ], "image-path": "esde.png" },
+    { "name": "YouTube TV", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_browser.cfg", "undo": "" } ], "image-path": "browser.png" },
     { "name": "Task Manager (Rescue)", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_taskmgr.cfg", "undo": "" } ], "image-path": "taskmgr.png" },
     { "name": "Sleep PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_sleep.cfg", "undo": "" } ], "image-path": "sleep.png" },
-    { "name": "Restart PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_restart.cfg", "undo": "" } ], "image-path": "restart.png" },
-    { "name": "YouTube TV", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_browser.cfg", "undo": "" } ], "image-path": "browser.png" }
+    { "name": "Restart PC", "prep-cmd": [ { "do": "C:\\Sunshine-Tools\\AdvancedRun.exe /Run C:\\Sunshine-Tools\\cfg_restart.cfg", "undo": "" } ], "image-path": "restart.png" }
   ]
 }
 '@
-    $appsContent | Set-Content "$($GlobalConfig.SunshineConfig)\apps.json" -Encoding UTF8
+    $appsContent | Set-Content "$SunshineConfigDir\apps.json" -Encoding UTF8
 }
 
 # ---------------------------------------------------------------------------
-# PHASE 5: ARTWORK & CLEANUP
+# PHASE 6: FINAL CLEANUP
 # ---------------------------------------------------------------------------
-Write-Host "Downloading Cover Art..."
-$CoversDir = Join-Path $GlobalConfig.SunshineConfig "covers"
-if (-not (Test-Path $CoversDir)) { New-Item -ItemType Directory -Force -Path $CoversDir | Out-Null }
+Write-Host "Unblocking files..."
+Get-ChildItem -Path $ToolsDir -Recurse | Unblock-File
 
-foreach ($img in $CoverArt.Keys) {
-    $dest = Join-Path $CoversDir $img
-    if (-not (Test-Path $dest)) {
-        try { Invoke-WebRequest -Uri $CoverArt[$img] -OutFile $dest -UserAgent "Mozilla/5.0" } catch { Write-Warning "Skipped artwork: $img" }
-    }
-}
-
-Write-Host "Unblocking Files..."
-Get-ChildItem -Path $GlobalConfig.ToolsDir -Recurse | Unblock-File
-
-Write-Host "Restarting Sunshine..."
+Write-Host "Restarting Sunshine Service..."
 Stop-Service "Sunshine Service" -ErrorAction SilentlyContinue
 Get-Process "sunshine" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 Start-Service "Sunshine Service" -ErrorAction SilentlyContinue
 
-Write-Host ">>> INSTALLATION COMPLETE! <<<" -ForegroundColor Green
-
+Write-Host ">>> COMPLETE! Your Custom Sunshine Host is Ready. <<<" -ForegroundColor Green
