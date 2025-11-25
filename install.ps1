@@ -75,34 +75,13 @@ function Install-WingetApp {
 }
 
 # ---------------------------------------------------------------------------
-# 1. PREP: CREATE TOOLS FOLDER & LOCK IT DOWN
+# 1. PREP: CREATE TOOLS FOLDER
 # ---------------------------------------------------------------------------
 
 Write-Host "Preparing tools directory at '$ToolsDir'..." -ForegroundColor Cyan
 if (-not (Test-Path $ToolsDir)) {
     New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
 }
-
-# Only Administrators and SYSTEM get write; Users get read/execute
-$acl = Get-Acl $ToolsDir
-$acl.SetAccessRuleProtection($true, $false) # Disable inheritance
-
-$admins = New-Object System.Security.Principal.NTAccount('BUILTIN', 'Administrators')
-$system = New-Object System.Security.Principal.NTAccount('NT AUTHORITY', 'SYSTEM')
-$users  = New-Object System.Security.Principal.NTAccount('BUILTIN', 'Users')
-
-$accessRules = @(
-    New-Object System.Security.AccessControl.FileSystemAccessRule($admins, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'),
-    New-Object System.Security.AccessControl.FileSystemAccessRule($system, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'),
-    New-Object System.Security.AccessControl.FileSystemAccessRule($users,  'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-)
-
-$acl.Access | ForEach-Object { $acl.RemoveAccessRule($_) } # Clear existing
-
-foreach ($rule in $accessRules) {
-    $acl.AddAccessRule($rule)
-}
-Set-Acl -Path $ToolsDir -AclObject $acl
 
 # ---------------------------------------------------------------------------
 # 2. INSTALL CORE SOFTWARE (SUNSHINE, PLAYNITE, VDD)
