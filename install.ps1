@@ -1,5 +1,9 @@
 # ==============================================================================
-# SUNSHINE CUSTOM HOST - INSTALLER (NO NULL PATHS, TESTED PATTERNS)
+# SUNSHINE CUSTOM HOST - INSTALLER
+# - Installs / configures Sunshine, AdvancedRun, MultiMonitorTool
+# - Sets up VDM (virtual display) scripts
+# - Generates sunshine.conf (global_prep_cmd)
+# - Generates apps.json (Steam, Xbox, Playnite, ES-DE, etc.)
 # ==============================================================================
 
 $ErrorActionPreference = 'Stop'
@@ -9,12 +13,12 @@ $ToolsDir          = 'C:\Sunshine-Tools'
 $SunshineConfigDir = 'C:\Program Files\Sunshine\config'
 $SunshineCoversDir = "$SunshineConfigDir\covers"
 
-# Resolution for the virtual display (VDD)
-$MonitorConfig = @{
-    Width   = 3840
-    Height  = 2160
-    Refresh = 60
-}
+# Virtual Display / monitor layout config for VDM scripts
+# These IDs are what your log already shows working:
+#   VirtualMonitorId = "3"
+#   PhysicalMonitorIds = "1","2"
+$VirtualMonitorId   = '3'
+$PhysicalMonitorIds = @('1','2')
 
 # App definitions: Exe|CommandLine|StartDir|RunAs|WindowState|WaitProcess
 #   RunAs:        1 = Current user, 3 = Run as Administrator
@@ -143,7 +147,7 @@ if (-not $vddPresent) {
 }
 
 # ---------------------------------------------------------------------------
-# 3. DOWNLOAD ADVANCEDRUN + VDM SCRIPTS INTO C:\Sunshine-Tools
+# 3. DOWNLOAD ADVANCEDRUN + MULTIMONITORTOOL INTO C:\Sunshine-Tools
 # ---------------------------------------------------------------------------
 
 Write-Host 'Downloading AdvancedRun...' -ForegroundColor Cyan
@@ -161,125 +165,6 @@ New-Item -ItemType Directory -Force -Path $advancedRunTemp | Out-Null
 Expand-Archive -Path $advancedRunZip -DestinationPath $advancedRunTemp -Force
 Copy-Item -Path (Join-Path $advancedRunTemp 'AdvancedRun.exe') -Destination (Join-Path $ToolsDir 'AdvancedRun.exe') -Force
 
-# --- Setup / Teardown scripts for virtual monitor (VDM) ----------------------
-$setupScript = @'
-param(
-    [int] $Width   = 3840,
-    [int] $Height  = 2160,
-    [int] $Refresh = 60
-)
-
-$ErrorActionPreference = "Stop"
-
-$LogPath    = "C:\Sunshine-Tools\sunvdm.log"
-$ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-function Write-Log {
-    param([string]$Message)
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $LogPath -Value "$timestamp [SETUP] $Message"
-}
-
-Write-Log "--- SETUP STARTED ---"
-
-try {
-    $multiTool     = Join-Path $ScriptPath "MultiMonitorTool.exe"
-    $configBackup  = Join-Path $ScriptPath "monitor_config.cfg"
-    $csvPath       = Join-Path $ScriptPath "current_monitors.csv"
-
-    if (-not (Test-Path $multiTool)) {
-        Write-Log "ERROR: MultiMonitorTool.exe not found."
-        throw "MultiMonitorTool.exe missing from $ScriptPath"
-    }
-
-    & $multiTool /smonitors $csvPath
-    Write-Log "Exported monitor list to $csvPath"
-
-    $monitors = Import-Csv $csvPath
-    $virtual  = $monitors | Where-Object {
-        $_.'Monitor Name' -match 'MTT' -or $_.'Monitor Name' -match 'Idd'
-    } | Select-Object -First 1
-
-    if (-not $virtual) {
-        Write-Log "No virtual monitor present, attempting to enable one..."
-        & $multiTool /turnon 2
-        Start-Sleep -Seconds 2
-        & $multiTool /smonitors $csvPath
-        $monitors = Import-Csv $csvPath
-        $virtual  = $monitors | Where-Object {
-            $_.'Monitor Name' -match 'MTT' -or $_.'Monitor Name' -match 'Idd'
-        } | Select-Object -First 1
-    }
-
-    if (-not $virtual) {
-        Write-Log "ERROR: Could not find virtual monitor after enabling."
-        throw "Virtual monitor not found"
-    }
-
-    Write-Log "Virtual monitor detected: $($virtual.'Monitor Name') / $($virtual.'Monitor ID')"
-
-    # Backup config once
-    if (-not (Test-Path $configBackup)) {
-        & $multiTool /sconfig $configBackup
-        Write-Log "Saved original monitor config to $configBackup"
-    }
-
-    # Apply custom resolution and make it primary
-    & $multiTool /setprimary $($virtual.'Monitor ID')
-    & $multiTool /SetMonitors $($virtual.'Monitor ID') "$Width" "$Height" "$Refresh" 32
-    Write-Log "Applied virtual monitor resolution ${Width}x${Height}@${Refresh}"
-
-    Write-Log "--- SETUP COMPLETED SUCCESSFULLY ---"
-}
-catch {
-    Write-Log "EXCEPTION: $($_.Exception.Message)"
-    throw
-}
-'@
-
-$teardownScript = @'
-$ErrorActionPreference = "Stop"
-
-$LogPath    = "C:\Sunshine-Tools\sunvdm.log"
-$ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-function Write-Log {
-    param([string]$Message)
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $LogPath -Value "$timestamp [TEARDOWN] $Message"
-}
-
-Write-Log "--- TEARDOWN STARTED ---"
-
-try {
-    $multiTool    = Join-Path $ScriptPath "MultiMonitorTool.exe"
-    $configBackup = Join-Path $ScriptPath "monitor_config.cfg"
-
-    if (-not (Test-Path $multiTool)) {
-        Write-Log "ERROR: MultiMonitorTool.exe not found."
-        throw "MultiMonitorTool.exe missing from $ScriptPath"
-    }
-
-    if (Test-Path $configBackup) {
-        & $multiTool /loadconfig $configBackup
-        Write-Log "Restored original monitor configuration from $configBackup"
-    }
-    else {
-        Write-Log "Backup config not found; skipping restore."
-    }
-
-    Write-Log "--- TEARDOWN COMPLETED SUCCESSFULLY ---"
-}
-catch {
-    Write-Log "EXCEPTION: $($_.Exception.Message)"
-    throw
-}
-'@
-
-Write-Config (Join-Path $ToolsDir 'setup_sunvdm.ps1')    $setupScript
-Write-Config (Join-Path $ToolsDir 'teardown_sunvdm.ps1') $teardownScript
-
-# Download MultiMonitorTool (portable)
 Write-Host 'Downloading MultiMonitorTool...' -ForegroundColor Cyan
 $mmUrl  = 'https://www.nirsoft.net/utils/multimonitortool-x64.zip'
 $mmZip  = Join-Path $env:TEMP 'multimonitortool.zip'
@@ -296,7 +181,151 @@ Expand-Archive -Path $mmZip -DestinationPath $mmTemp -Force
 Copy-Item -Path (Join-Path $mmTemp 'MultiMonitorTool.exe') -Destination (Join-Path $ToolsDir 'MultiMonitorTool.exe') -Force
 
 # ---------------------------------------------------------------------------
-# 4. GENERATE ADVANCEDRUN CFG FILES (DEBUGGING ONLY)
+# 4. CREATE VDM SCRIPTS (setup_sunvdm.ps1 / teardown_sunvdm.ps1)
+# ---------------------------------------------------------------------------
+
+$setupScript = @"
+param(
+    [int] \$ClientWidth,
+    [int] \$ClientHeight,
+    [int] \$ClientFps,
+    [int] \$ClientHdr
+)
+
+# =========================
+# CONFIG – ADJUST IF NEEDED
+# =========================
+
+\$MultiToolPath       = "C:\Sunshine-Tools\MultiMonitorTool.exe"
+\$LogPath             = "C:\Sunshine-Tools\sunvdm.log"
+\$NormalLayoutConfig  = "C:\Sunshine-Tools\monitor_config.cfg"
+
+# IDs from installer config
+\$VirtualMonitorId    = "$VirtualMonitorId"
+\$PhysicalMonitorIds  = @("$(($PhysicalMonitorIds -join '","'))")
+\$SetVirtualToMax     = \$true
+
+# =========================
+# END CONFIG
+# =========================
+
+\$ErrorActionPreference = "Continue"
+
+function Write-Log {
+    param([string]\$Message)
+    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path \$LogPath -Value "\$timestamp [SETUP] \$Message"
+}
+
+Write-Log "=== Sunshine VDM SETUP started ==="
+
+if (-not (Test-Path \$MultiToolPath)) {
+    Write-Log "ERROR: MultiMonitorTool.exe not found at '\$MultiToolPath'. Skipping VDM setup."
+    exit 0
+}
+
+try {
+    if (-not (Test-Path \$NormalLayoutConfig)) {
+        Write-Log "Saving current monitor configuration to '\$NormalLayoutConfig'..."
+        & \$MultiToolPath /SaveConfig \$NormalLayoutConfig
+        Write-Log "Saved normal layout."
+    }
+}
+catch {
+    Write-Log "WARNING: Failed to save normal layout: \$($_.Exception.Message)"
+}
+
+try {
+    Write-Log "Enabling virtual monitor '\$VirtualMonitorId'..."
+    & \$MultiToolPath /enable \$VirtualMonitorId
+}
+catch {
+    Write-Log "WARNING: Failed to enable virtual monitor '\$VirtualMonitorId': \$($_.Exception.Message)"
+}
+
+foreach (\$monId in \$PhysicalMonitorIds) {
+    try {
+        Write-Log "Disabling physical monitor '\$monId'..."
+        & \$MultiToolPath /disable \$monId
+    }
+    catch {
+        Write-Log "WARNING: Failed to disable monitor '\$monId': \$($_.Exception.Message)"
+    }
+}
+
+try {
+    Write-Log "Setting virtual monitor '\$VirtualMonitorId' as primary..."
+    & \$MultiToolPath /SetPrimary \$VirtualMonitorId
+}
+catch {
+    Write-Log "WARNING: Failed to set primary monitor to '\$VirtualMonitorId': \$($_.Exception.Message)"
+}
+
+if (\$SetVirtualToMax) {
+    try {
+        Write-Log "Setting max resolution on virtual monitor '\$VirtualMonitorId'..."
+        & \$MultiToolPath /SetMax \$VirtualMonitorId
+    }
+    catch {
+        Write-Log "WARNING: Failed to set max resolution on '\$VirtualMonitorId': \$($_.Exception.Message)"
+    }
+}
+
+Write-Log "=== Sunshine VDM SETUP complete ==="
+exit 0
+"@
+
+$teardownScript = @"
+# =========================
+# CONFIG – ADJUST IF NEEDED
+# =========================
+
+\$MultiToolPath      = "C:\Sunshine-Tools\MultiMonitorTool.exe"
+\$LogPath            = "C:\Sunshine-Tools\sunvdm.log"
+\$NormalLayoutConfig = "C:\Sunshine-Tools\monitor_config.cfg"
+
+# =========================
+# END CONFIG
+# =========================
+
+\$ErrorActionPreference = "Continue"
+
+function Write-Log {
+    param([string]\$Message)
+    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path \$LogPath -Value "\$timestamp [TEARDOWN] \$Message"
+}
+
+Write-Log "=== Sunshine VDM TEARDOWN started ==="
+
+if (-not (Test-Path \$MultiToolPath)) {
+    Write-Log "ERROR: MultiMonitorTool.exe not found at '\$MultiToolPath'. Cannot restore layout."
+    exit 0
+}
+
+if (-not (Test-Path \$NormalLayoutConfig)) {
+    Write-Log "WARNING: Normal layout config '\$NormalLayoutConfig' not found. Nothing to restore."
+    exit 0
+}
+
+try {
+    Write-Log "Restoring normal monitor configuration from '\$NormalLayoutConfig'..."
+    & \$MultiToolPath /LoadConfig \$NormalLayoutConfig
+    Write-Log "Normal layout restored."
+}
+catch {
+    Write-Log "WARNING: Failed to restore monitor layout: \$($_.Exception.Message)"
+}
+
+Write-Log "=== Sunshine VDM TEARDOWN complete ==="
+exit 0
+"@
+
+Write-Config (Join-Path $ToolsDir 'setup_sunvdm.ps1')    $setupScript
+Write-Config (Join-Path $ToolsDir 'teardown_sunvdm.ps1') $teardownScript
+
+# ---------------------------------------------------------------------------
+# 5. GENERATE ADVANCEDRUN CFG FILES (DEBUGGING ONLY)
 # ---------------------------------------------------------------------------
 
 Write-Host 'Generating AdvancedRun config files...' -ForegroundColor Cyan
@@ -327,7 +356,7 @@ foreach ($key in $Apps.Keys) {
 }
 
 # ---------------------------------------------------------------------------
-# 5. DOWNLOAD COVER ART
+# 6. DOWNLOAD COVER ART
 # ---------------------------------------------------------------------------
 
 Write-Host 'Downloading App Cover Art...' -ForegroundColor Cyan
@@ -352,13 +381,13 @@ foreach ($img in $Covers.Keys) {
 }
 
 # ---------------------------------------------------------------------------
-# 6. UPDATE SUNSHINE CONFIG (sunshine.conf + apps.json)
+# 7. UPDATE SUNSHINE CONFIG (sunshine.conf + apps.json)
 # ---------------------------------------------------------------------------
 
 if (Test-Path $SunshineConfigDir) {
     Write-Host "Configuring Sunshine in '$SunshineConfigDir'..." -ForegroundColor Cyan
 
-    # Backup any existing configs (no -and to avoid streaming parse weirdness)
+    # Backup any existing configs
     $configFiles = @('sunshine.conf', 'apps.json')
     foreach ($file in $configFiles) {
         $path = Join-Path $SunshineConfigDir $file
@@ -370,14 +399,14 @@ if (Test-Path $SunshineConfigDir) {
         }
     }
 
-    # global_prep_cmd: call the PowerShell setup/teardown scripts directly (no BAT/VBS), run elevated
-    $confContent = @'
+    # global_prep_cmd: call the PowerShell setup/teardown scripts directly, run elevated
+    $confContent = @"
 global_prep_cmd = [{
   "do":"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\Sunshine-Tools\\setup_sunvdm.ps1\"",
   "undo":"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\Sunshine-Tools\\teardown_sunvdm.ps1\"",
   "elevated":true
 }]
-'@
+"@
     Write-Config "$SunshineConfigDir\sunshine.conf" $confContent
 
     # Build apps.json dynamically from the $Apps table and emit canonical JSON
@@ -392,32 +421,30 @@ global_prep_cmd = [{
         'image-path' = "C:\Program Files\Sunshine\config\covers\desktop.png"
     }
 
-    # Map logical keys -> display names and cover files
     $appDisplay = @{
-        steam   = 'Steam Big Picture'
-        xbox    = 'Xbox (Game Pass)'
-        playnite= 'Playnite'
-        esde    = 'EmulationStation'
-        browser = 'YouTube TV'
-        taskmgr = 'Task Manager (Rescue)'
-        sleep   = 'Sleep PC'
-        restart = 'Restart PC'
+        steam    = 'Steam Big Picture'
+        xbox     = 'Xbox (Game Pass)'
+        playnite = 'Playnite'
+        esde     = 'EmulationStation'
+        browser  = 'YouTube TV'
+        taskmgr  = 'Task Manager (Rescue)'
+        sleep    = 'Sleep PC'
+        restart  = 'Restart PC'
     }
 
     $coverMap = @{
-        steam   = 'steam.png'
-        xbox    = 'xbox.png'
-        playnite= 'playnite.png'
-        esde    = 'esde.png'
-        browser = 'browser.png'
-        taskmgr = 'taskmgr.png'
-        sleep   = 'sleep.png'
-        restart = 'restart.png'
+        steam    = 'steam.png'
+        xbox     = 'xbox.png'
+        playnite = 'playnite.png'
+        esde     = 'esde.png'
+        browser  = 'browser.png'
+        taskmgr  = 'taskmgr.png'
+        sleep    = 'sleep.png'
+        restart  = 'restart.png'
     }
 
     foreach ($key in $appDisplay.Keys) {
         if (-not $Apps.ContainsKey($key)) {
-            # e.g., playnite missing -> skip cleanly
             continue
         }
 
@@ -434,13 +461,10 @@ global_prep_cmd = [{
         $window    = $parts[4]
         $waitProc  = $parts[5]
 
-        # Escape any embedded quotes to keep JSON + CLI stable
         $safeExe      = $exe.Replace('"','\"')
         $safeCmdLine  = $cmdLine.Replace('"','\"')
         $safeStartDir = $startDir.Replace('"','\"')
 
-        # This is the pattern we manually validated:
-        # AdvancedRun.exe /EXEFilename "<exe>" /CommandLine "<args>" /StartDirectory "<dir>" /RunAs <n> /Run
         $do = "C:\\Sunshine-Tools\\AdvancedRun.exe /EXEFilename `"$safeExe`""
 
         if ($safeCmdLine -ne '') {
@@ -475,7 +499,7 @@ else {
 }
 
 # ---------------------------------------------------------------------------
-# 7. FINAL CLEANUP & RESTART
+# 8. FINAL CLEANUP & RESTART
 # ---------------------------------------------------------------------------
 
 Write-Host 'Unblocking files...' -ForegroundColor Cyan
