@@ -17,13 +17,9 @@ $MonitorConfig = @{
 }
 
 # App definitions: Exe|CommandLine|StartDir|RunAs|WindowState|WaitProcess
-#   RunAs:
-#     1 = Current user
-#     3 = Run as Administrator
-#   WindowState:
-#     0 = Hidden, 1 = Normal, 3 = Maximized
-#   WaitProcess:
-#     0 = Don't wait, 1 = Wait for process exit
+#   RunAs:        1 = Current user, 3 = Run as Administrator
+#   WindowState:  0 = Hidden, 1 = Normal, 3 = Maximized
+#   WaitProcess:  0 = Don't wait, 1 = Wait for process exit
 $Apps = @{
     'setup'    = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$ToolsDir\setup_sunvdm.ps1`"|$ToolsDir|3|0|1"
     'teardown' = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$ToolsDir\teardown_sunvdm.ps1`"|$ToolsDir|3|0|1"
@@ -362,13 +358,15 @@ foreach ($img in $Covers.Keys) {
 if (Test-Path $SunshineConfigDir) {
     Write-Host "Configuring Sunshine in '$SunshineConfigDir'..." -ForegroundColor Cyan
 
-    # Backup any existing configs
+    # Backup any existing configs (no -and to avoid streaming parse weirdness)
     $configFiles = @('sunshine.conf', 'apps.json')
     foreach ($file in $configFiles) {
         $path = Join-Path $SunshineConfigDir $file
-        if (Test-Path $path -and -not (Test-Path "$path.bak")) {
-            Copy-Item $path "$path.bak" -Force
-            Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
+        if (Test-Path $path) {
+            if (-not (Test-Path "$path.bak")) {
+                Copy-Item $path "$path.bak" -Force
+                Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
+            }
         }
     }
 
