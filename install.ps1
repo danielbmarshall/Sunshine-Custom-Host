@@ -117,7 +117,13 @@ function Install-Sunshine {
 
     Write-Host "=== Install / Repair Sunshine ===" -ForegroundColor Cyan
 
-    $svc = Get-Service 'SunshineService' -ErrorAction SilentlyContinue
+    # Avoid terminating on clean machines where the service does not exist
+    try {
+        $svc = Get-Service 'SunshineService' -ErrorAction Stop
+    }
+    catch {
+        $svc = $null
+    }
 
     if (-not $Force) {
         if ($svc) {
@@ -126,7 +132,8 @@ function Install-Sunshine {
         }
     }
 
-    Install-WingetApp -Id 'LizardByte.Sunshine' -DisplayName 'Sunshine' -Force:$Force
+    # Always force winget install so it reinstalls even when the same version is detected
+    Install-WingetApp -Id 'LizardByte.Sunshine' -DisplayName 'Sunshine' -Force:$true
 }
 
 function Install-Tools {
@@ -544,7 +551,13 @@ function Nuclear-ReinstallSunshine {
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "Uninstalling Sunshine via winget..." -ForegroundColor Cyan
-        winget uninstall --id LizardByte.Sunshine -e --silent --accept-package-agreements --accept-source-agreements
+        try {
+            # Newer winget builds reject accept-* flags; use force to ensure removal
+            winget uninstall --id LizardByte.Sunshine -e --silent --force
+        }
+        catch {
+            Write-Warning "winget uninstall failed: $($_.Exception.Message). You may need to uninstall Sunshine manually via Apps & Features."
+        }
     }
     else {
         Write-Warning "winget not available; skipping automated uninstall."
