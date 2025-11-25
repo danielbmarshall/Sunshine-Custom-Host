@@ -1,0 +1,20 @@
+# Temporary downloads
+*.zip
+*.exe
+*.msi
+
+# Logs
+*.log
+
+# User-specific config (if you ever run it inside the repo)
+monitor_config.cfg
+sunshine.conf.bak
+apps.json.bak
+
+# Temp folders
+vdd_extract/
+advancedrun_extract/
+multimonitortool_extract/
+
+# VS Code directory (if you use it)
+.vscode/
