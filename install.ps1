@@ -68,15 +68,44 @@ function Write-Config {
 function Install-WingetApp {
     param(
         [Parameter(Mandatory)] [string] $Id,
-        [string]$DisplayName = $Id
+        [string]$DisplayName = $Id,
+        [switch]$Force
     )
+
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Write-Warning "winget.exe not found. Please install '$DisplayName' manually."
         return
     }
 
+    $args = @(
+        'install',
+        '--id', $Id,
+        '-e',
+        '--silent',
+        '--accept-package-agreements',
+        '--accept-source-agreements'
+    )
+
+    if ($Force) {
+        $args += '--force'
+    }
+
     Write-Host "Installing or repairing $DisplayName via winget..." -ForegroundColor Yellow
-    winget install --id $Id -e --silent --accept-package-agreements --accept-source-agreements
+
+    try {
+        winget @args
+    }
+    catch {
+        # If --force is unsupported, retry without it
+        if ($Force -and $_.Exception.Message -like '*--force*') {
+            Write-Warning "winget does not support --force on this system; retrying without it..."
+            $args = $args | Where-Object { $_ -ne '--force' }
+            winget @args
+        }
+        else {
+            throw
+        }
+    }
 }
 
 # --- Core actions -------------------------------------------------------------
@@ -87,14 +116,17 @@ function Install-Sunshine {
     )
 
     Write-Host "=== Install / Repair Sunshine ===" -ForegroundColor Cyan
+
     $svc = Get-Service 'SunshineService' -ErrorAction SilentlyContinue
 
-    if ($svc -and -not $Force) {
-        Write-Host "Sunshine service detected (status: $($svc.Status)). Skipping install (use Force to reinstall)." -ForegroundColor Green
-        return
+    if (-not $Force) {
+        if ($svc) {
+            Write-Host "Sunshine service detected (status: $($svc.Status)). Skipping install (use Force to reinstall)." -ForegroundColor Green
+            return
+        }
     }
 
-    Install-WingetApp -Id 'LizardByte.Sunshine' -DisplayName 'Sunshine'
+    Install-WingetApp -Id 'LizardByte.Sunshine' -DisplayName 'Sunshine' -Force:$Force
 }
 
 function Install-Tools {
@@ -492,6 +524,50 @@ function Full-Setup {
     Write-Host '>>> COMPLETE! Your Custom Sunshine Host is Ready. <<<' -ForegroundColor Green
 }
 
+function Nuclear-ReinstallSunshine {
+    Write-Host "=== NUCLEAR REINSTALL: Sunshine + Sunshine-Tools ===" -ForegroundColor Red
+    Write-Host "This will:" -ForegroundColor Red
+    Write-Host "  - Stop and uninstall Sunshine" -ForegroundColor Red
+    Write-Host "  - Delete C:\Program Files\Sunshine" -ForegroundColor Red
+    Write-Host "  - Delete $ToolsDir" -ForegroundColor Red
+    Write-Host ""
+    $confirm = Read-Host "Type 'NUKE' in ALL CAPS to continue, or anything else to cancel"
+
+    if ($confirm -ne 'NUKE') {
+        Write-Host "Nuclear reinstall cancelled." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "Stopping Sunshine service and processes..." -ForegroundColor Cyan
+    Stop-Service 'SunshineService' -ErrorAction SilentlyContinue
+    Get-Process 'sunshine' -ErrorAction SilentlyContinue | Stop-Process -Force
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "Uninstalling Sunshine via winget..." -ForegroundColor Cyan
+        winget uninstall --id LizardByte.Sunshine -e --silent --accept-package-agreements --accept-source-agreements
+    }
+    else {
+        Write-Warning "winget not available; skipping automated uninstall."
+    }
+
+    Write-Host "Removing Sunshine program folder..." -ForegroundColor Cyan
+    Remove-Item 'C:\Program Files\Sunshine' -Recurse -Force -ErrorAction SilentlyContinue
+
+    Write-Host "Removing Sunshine-Tools folder..." -ForegroundColor Cyan
+    Remove-Item $ToolsDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    Write-Host "Fresh install of Sunshine..." -ForegroundColor Cyan
+    Install-Sunshine -Force
+
+    Write-Host "Reinstalling tools, VDM scripts, and configs..." -ForegroundColor Cyan
+    Install-Tools
+    Setup-VDMScripts
+    Configure-AppsAndConfig
+    Restart-Sunshine
+
+    Write-Host ">>> Nuclear reinstall complete. <<<<" -ForegroundColor Green
+}
+
 # --- Menu ---------------------------------------------------------------------
 
 function Show-MainMenu {
@@ -505,6 +581,7 @@ function Show-MainMenu {
         Write-Host "4) Configure Sunshine (sunshine.conf + apps.json + covers)"
         Write-Host "5) Check / Install Virtual Display Driver (VDD)"
         Write-Host "6) Restart Sunshine Service"
+        Write-Host "7) Nuclear reinstall Sunshine + Sunshine-Tools (UNINSTALL + DELETE FOLDERS + REINSTALL)" -ForegroundColor Red
         Write-Host "Q) Quit"
         Write-Host "================================================================" -ForegroundColor Cyan
 
@@ -527,6 +604,7 @@ function Show-MainMenu {
             '4' { Configure-AppsAndConfig }
             '5' { Ensure-VDD }
             '6' { Restart-Sunshine }
+            '7' { Nuclear-ReinstallSunshine }
             'Q' { Write-Host "Exiting installer." -ForegroundColor Green; break }
             default { Write-Host "Invalid selection. Try again." -ForegroundColor Red }
         }
