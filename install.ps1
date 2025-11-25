@@ -1,13 +1,13 @@
 # ==============================================================================
-# SUNSHINE CUSTOM HOST - UNIFIED INSTALLER (FIXED & HARDENED)
+# SUNSHINE CUSTOM HOST - INSTALLER (NO NULL PATHS, TESTED PATTERNS)
 # ==============================================================================
 
 $ErrorActionPreference = 'Stop'
 
 # --- Global Paths / Config ----------------------------------------------------
-$ToolsDir           = 'C:\Sunshine-Tools'
-$SunshineConfigDir  = 'C:\Program Files\Sunshine\config'
-$SunshineCoversDir  = "$SunshineConfigDir\covers"
+$ToolsDir          = 'C:\Sunshine-Tools'
+$SunshineConfigDir = 'C:\Program Files\Sunshine\config'
+$SunshineCoversDir = "$SunshineConfigDir\covers"
 
 # Resolution for the virtual display (VDD)
 $MonitorConfig = @{
@@ -18,18 +18,18 @@ $MonitorConfig = @{
 
 # App definitions: Exe|CommandLine|StartDir|RunAs|WindowState|WaitProcess
 #   RunAs:
-#     1 = Current user (allow UAC elevation)
+#     1 = Current user
 #     3 = Run as Administrator
 #   WindowState:
 #     0 = Hidden, 1 = Normal, 3 = Maximized
 #   WaitProcess:
-#     0 = Don't wait, 1 = Wait for process to exit
+#     0 = Don't wait, 1 = Wait for process exit
 $Apps = @{
     'setup'    = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$ToolsDir\setup_sunvdm.ps1`"|$ToolsDir|3|0|1"
     'teardown' = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe|-ExecutionPolicy Bypass -File `"$ToolsDir\teardown_sunvdm.ps1`"|$ToolsDir|3|0|1"
     'steam'    = "C:\Windows\explorer.exe|steam://open/bigpicture|C:\Windows|1|0|0"
     'xbox'     = "C:\Windows\explorer.exe|shell:AppsFolder\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App|C:\Windows|1|0|0"
-    'playnite' = "$playniteExe||$(Split-Path -Path $playniteExe)|1|3|0"
+    # playnite will be added later once $playniteExe is discovered
     'esde'     = "$env:APPDATA\EmuDeck\Emulators\ES-DE\ES-DE.exe||$env:APPDATA\EmuDeck\Emulators\ES-DE|1|3|0"
     'sleep'    = "C:\Windows\System32\rundll32.exe|powrprof.dll,SetSuspendState 0,1,0|C:\Windows\System32|3|0|0"
     'restart'  = "C:\Windows\System32\shutdown.exe|/r /t 0|C:\Windows\System32|3|0|0"
@@ -133,8 +133,10 @@ if (-not $playniteExe) {
 
 if ($playniteExe) {
     Write-Host "Playnite found at: $playniteExe" -ForegroundColor Green
+    # SAFE: Only add Playnite to $Apps once we know the path is NOT null
+    $Apps['playnite'] = "$playniteExe||$(Split-Path -Path $playniteExe)|1|3|0"
 } else {
-    Write-Warning 'Playnite executable not found even after install. Playnite tile may not work.'
+    Write-Warning 'Playnite executable not found even after install. Playnite tile will be skipped.'
 }
 
 # Virtual Display Driver (VDD) install if not present
@@ -152,12 +154,8 @@ if (-not $vddPresent) {
 
     Invoke-WebRequest -Uri $vddUrl -OutFile $vddZip -UseBasicParsing
 
-    if (Test-Path $vddDir) {
-        Remove-Item $vddDir -Recurse -Force
-    }
-    if (Test-Path $vddTemp) {
-        Remove-Item $vddTemp -Recurse -Force
-    }
+    if (Test-Path $vddDir)  { Remove-Item $vddDir  -Recurse -Force }
+    if (Test-Path $vddTemp) { Remove-Item $vddTemp -Recurse -Force }
 
     New-Item -ItemType Directory -Force -Path $vddDir  | Out-Null
     New-Item -ItemType Directory -Force -Path $vddTemp | Out-Null
@@ -213,8 +211,6 @@ try {
     $multiTool     = Join-Path $ScriptPath "MultiMonitorTool.exe"
     $configBackup  = Join-Path $ScriptPath "monitor_config.cfg"
     $csvPath       = Join-Path $ScriptPath "current_monitors.csv"
-    $maxTries      = 20
-    $virtual       = $null
 
     if (-not (Test-Path $multiTool)) {
         Write-Log "ERROR: MultiMonitorTool.exe not found."
@@ -225,7 +221,9 @@ try {
     Write-Log "Exported monitor list to $csvPath"
 
     $monitors = Import-Csv $csvPath
-    $virtual  = $monitors | Where-Object { $_.MonitorName -match "MTT" -or $_.MonitorName -match "Idd" } | Select-Object -First 1
+    $virtual  = $monitors | Where-Object {
+        $_.'Monitor Name' -match 'MTT' -or $_.'Monitor Name' -match 'Idd'
+    } | Select-Object -First 1
 
     if (-not $virtual) {
         Write-Log "No virtual monitor present, attempting to enable one..."
@@ -233,7 +231,9 @@ try {
         Start-Sleep -Seconds 2
         & $multiTool /smonitors $csvPath
         $monitors = Import-Csv $csvPath
-        $virtual  = $monitors | Where-Object { $_.MonitorName -match "MTT" -or $_.MonitorName -match "Idd" } | Select-Object -First 1
+        $virtual  = $monitors | Where-Object {
+            $_.'Monitor Name' -match 'MTT' -or $_.'Monitor Name' -match 'Idd'
+        } | Select-Object -First 1
     }
 
     if (-not $virtual) {
@@ -241,17 +241,17 @@ try {
         throw "Virtual monitor not found"
     }
 
-    Write-Log "Virtual monitor detected: $($virtual.MonitorName)"
+    Write-Log "Virtual monitor detected: $($virtual.'Monitor Name') / $($virtual.'Monitor ID')"
 
-    # Backup config
+    # Backup config once
     if (-not (Test-Path $configBackup)) {
         & $multiTool /sconfig $configBackup
         Write-Log "Saved original monitor config to $configBackup"
     }
 
-    # Apply custom resolution and primary display
-    & $multiTool /setprimary $($virtual.MonitorID)
-    & $multiTool /SetMonitors $($virtual.MonitorID) "$Width" "$Height" "$Refresh" 32
+    # Apply custom resolution and make it primary
+    & $multiTool /setprimary $($virtual.'Monitor ID')
+    & $multiTool /SetMonitors $($virtual.'Monitor ID') "$Width" "$Height" "$Refresh" 32
     Write-Log "Applied virtual monitor resolution ${Width}x${Height}@${Refresh}"
 
     Write-Log "--- SETUP COMPLETED SUCCESSFULLY ---"
@@ -321,7 +321,7 @@ Expand-Archive -Path $mmZip -DestinationPath $mmTemp -Force
 Copy-Item -Path (Join-Path $mmTemp 'MultiMonitorTool.exe') -Destination (Join-Path $ToolsDir 'MultiMonitorTool.exe') -Force
 
 # ---------------------------------------------------------------------------
-# 4. GENERATE ADVANCEDRUN CFG FILES (FOR DEBUGGING / OPTIONAL USE)
+# 4. GENERATE ADVANCEDRUN CFG FILES (DEBUGGING ONLY)
 # ---------------------------------------------------------------------------
 
 Write-Host 'Generating AdvancedRun config files...' -ForegroundColor Cyan
@@ -354,6 +354,7 @@ foreach ($key in $Apps.Keys) {
 # ---------------------------------------------------------------------------
 # 5. DOWNLOAD COVER ART
 # ---------------------------------------------------------------------------
+
 Write-Host 'Downloading App Cover Art...' -ForegroundColor Cyan
 
 if (-not (Test-Path $SunshineCoversDir)) {
@@ -386,16 +387,13 @@ if (Test-Path $SunshineConfigDir) {
     $configFiles = @('sunshine.conf', 'apps.json')
     foreach ($file in $configFiles) {
         $path = Join-Path $SunshineConfigDir $file
-        if (Test-Path $path) {
-            if (-not (Test-Path "$path.bak")) {
-                Copy-Item $path "$path.bak" -Force
-                Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
-            }
+        if (Test-Path $path -and -not (Test-Path "$path.bak")) {
+            Copy-Item $path "$path.bak" -Force
+            Write-Host "Backed up $file to $file.bak" -ForegroundColor DarkGray
         }
     }
 
-    # global_prep_cmd: call the PowerShell setup/teardown scripts directly
-    # (no BAT/VBS), run elevated
+    # global_prep_cmd: call the PowerShell setup/teardown scripts directly (no BAT/VBS), run elevated
     $confContent = @'
 global_prep_cmd = [{
   "do":"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\Sunshine-Tools\\setup_sunvdm.ps1\"",
@@ -413,7 +411,7 @@ global_prep_cmd = [{
 
     # Desktop entry (no prep-cmd, just a cover)
     $appsJson.apps += [ordered]@{
-        name        = 'Desktop'
+        name         = 'Desktop'
         'image-path' = "C:\Program Files\Sunshine\config\covers\desktop.png"
     }
 
@@ -441,7 +439,10 @@ global_prep_cmd = [{
     }
 
     foreach ($key in $appDisplay.Keys) {
-        if (-not $Apps.ContainsKey($key)) { continue }
+        if (-not $Apps.ContainsKey($key)) {
+            # e.g., playnite missing -> skip cleanly
+            continue
+        }
 
         $parts = $Apps[$key].Split('|')
         if ($parts.Count -lt 6) {
@@ -461,6 +462,8 @@ global_prep_cmd = [{
         $safeCmdLine  = $cmdLine.Replace('"','\"')
         $safeStartDir = $startDir.Replace('"','\"')
 
+        # This is the pattern we manually validated:
+        # AdvancedRun.exe /EXEFilename "<exe>" /CommandLine "<args>" /StartDirectory "<dir>" /RunAs <n> /Run
         $do = "C:\\Sunshine-Tools\\AdvancedRun.exe /EXEFilename `"$safeExe`""
 
         if ($safeCmdLine -ne '') {
@@ -495,8 +498,9 @@ else {
 }
 
 # ---------------------------------------------------------------------------
-# 8. FINAL CLEANUP & RESTART
+# 7. FINAL CLEANUP & RESTART
 # ---------------------------------------------------------------------------
+
 Write-Host 'Unblocking files...' -ForegroundColor Cyan
 Get-ChildItem -Path $ToolsDir -Recurse -ErrorAction SilentlyContinue |
     Unblock-File -ErrorAction SilentlyContinue
