@@ -333,7 +333,12 @@ foreach ($monId in $PhysicalMonitorIds) {
 
 Invoke-MMTool -Args @('/SetPrimary', $VirtualMonitorId) -Step "SetPrimary"
 
-if ($SetVirtualToMax) {
+# Apply client-requested resolution if provided; otherwise set max
+if ($ClientWidth -gt 0 -and $ClientHeight -gt 0) {
+    $fps = if ($ClientFps -gt 0) { $ClientFps } else { 60 }
+    Write-Log "Setting virtual monitor resolution to ${ClientWidth}x${ClientHeight}@${fps}"
+    Invoke-MMTool -Args @('/SetMonRes', $VirtualMonitorId, "$ClientWidth", "$ClientHeight", '32', "$fps") -Step "SetResolution"
+} elseif ($SetVirtualToMax) {
     Invoke-MMTool -Args @('/SetMax', $VirtualMonitorId) -Step "SetMax"
 }
 
@@ -399,6 +404,12 @@ try {
 catch {
     Write-Log "WARNING: Failed to restore monitor layout: $($_.Exception.Message)"
 }
+
+# Ensure physical monitors are enabled again and virtual disabled
+foreach ($monId in $PhysicalMonitorIds) {
+    try { Invoke-MMTool -Args @('/enable', $monId) -Step "ReEnable-$monId" } catch { Write-Log "WARN: re-enable $monId failed: $($_.Exception.Message)" }
+}
+try { Invoke-MMTool -Args @('/disable', $VirtualMonitorId) -Step "DisableVirtual" } catch { Write-Log "WARN: disable virtual failed: $($_.Exception.Message)" }
 
 Write-Log "=== Sunshine VDM TEARDOWN complete ==="
 exit 0
