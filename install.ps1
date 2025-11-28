@@ -69,7 +69,8 @@ function Install-WingetApp {
     param(
         [Parameter(Mandatory)] [string] $Id,
         [string]$DisplayName = $Id,
-        [switch]$Force
+        [switch]$Force,
+        [string]$Override
     )
 
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -88,6 +89,11 @@ function Install-WingetApp {
 
     if ($Force) {
         $args += '--force'
+    }
+
+    if ($Override) {
+        $args += '--override'
+        $args += $Override
     }
 
     Write-Host "Installing or repairing $DisplayName via winget..." -ForegroundColor Yellow
@@ -133,7 +139,9 @@ function Install-Sunshine {
     }
 
     # Always force winget install so it reinstalls even when the same version is detected
-    Install-WingetApp -Id 'LizardByte.Sunshine' -DisplayName 'Sunshine' -Force:$true
+    # Pass quiet installer overrides to suppress UI (avoid prompts like "Sunshine is already installed")
+    $sunshineOverrides = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCANCEL'
+    Install-WingetApp -Id 'LizardByte.Sunshine' -DisplayName 'Sunshine' -Force:$true -Override $sunshineOverrides
 }
 
 function Install-Tools {
@@ -176,6 +184,45 @@ function Install-Tools {
     Expand-Archive -Path $mmZip -DestinationPath $mmTemp -Force
     Copy-Item -Path (Join-Path $mmTemp 'MultiMonitorTool.exe') -Destination (Join-Path $ToolsDir 'MultiMonitorTool.exe') -Force
 
+    # AutoHideMouseCursor
+    Write-Host 'Downloading AutoHideMouseCursor...' -ForegroundColor Cyan
+    $ahUrl   = 'https://www.softwareok.com/Download/AutoHideMouseCursor.zip'
+    $ahZip   = Join-Path $env:TEMP 'autohidemousecursor.zip'
+    $ahTemp  = Join-Path $env:TEMP 'autohidemousecursor_extract'
+    $ahExe   = Join-Path $ToolsDir 'AutoHideMouseCursor.exe'
+    $startup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\StartUp'
+
+    Invoke-WebRequest -Uri $ahUrl -OutFile $ahZip -UseBasicParsing
+
+    if (Test-Path $ahTemp) {
+        Remove-Item $ahTemp -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $ahTemp | Out-Null
+
+    Expand-Archive -Path $ahZip -DestinationPath $ahTemp -Force
+    $ahSource = Get-ChildItem -Path $ahTemp -Filter 'AutoHideMouseCursor.exe' -Recurse | Select-Object -First 1
+    if ($ahSource) {
+        Copy-Item -Path $ahSource.FullName -Destination $ahExe -Force
+    }
+    else {
+        Write-Warning 'AutoHideMouseCursor.exe not found in extracted archive.'
+    }
+
+    if (-not (Test-Path $startup)) {
+        New-Item -ItemType Directory -Force -Path $startup | Out-Null
+    }
+    $shortcutPath = Join-Path $startup 'AutoHideMouseCursor.lnk'
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $ahExe
+        $shortcut.WorkingDirectory = $ToolsDir
+        $shortcut.Save()
+    }
+    catch {
+        Write-Warning "Failed to create startup shortcut for AutoHideMouseCursor: $($_.Exception.Message)"
+    }
+
     Write-Host "Tools installed under $ToolsDir." -ForegroundColor Green
 }
 
@@ -184,89 +231,79 @@ function Setup-VDMScripts {
 
     $setupScript = @"
 param(
-    [int] \$ClientWidth,
-    [int] \$ClientHeight,
-    [int] \$ClientFps,
-    [int] \$ClientHdr
+    [int] $ClientWidth,
+    [int] $ClientHeight,
+    [int] $ClientFps,
+    [int] $ClientHdr
 )
 
 # =========================
-# CONFIG – ADJUST IF NEEDED
+# CONFIG - ADJUST IF NEEDED
 # =========================
 
-\$MultiToolPath       = "C:\Sunshine-Tools\MultiMonitorTool.exe"
-\$LogPath             = "C:\Sunshine-Tools\sunvdm.log"
-\$NormalLayoutConfig  = "C:\Sunshine-Tools\monitor_config.cfg"
+$MultiToolPath       = "C:\Sunshine-Tools\MultiMonitorTool.exe"
+$LogPath             = "C:\Sunshine-Tools\sunvdm.log"
+$NormalLayoutConfig  = "C:\Sunshine-Tools\monitor_config.cfg"
 
 # IDs from installer config
-\$VirtualMonitorId    = "$VirtualMonitorId"
-\$PhysicalMonitorIds  = @("$(($PhysicalMonitorIds -join '","'))")
-\$SetVirtualToMax     = \$true
+$VirtualMonitorId    = "$VirtualMonitorId"
+$PhysicalMonitorIds  = @("$(($PhysicalMonitorIds -join '","'))")
+$SetVirtualToMax     = $true
 
 # =========================
 # END CONFIG
 # =========================
 
-\$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Continue"
 
 function Write-Log {
-    param([string]\$Message)
-    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path \$LogPath -Value "\$timestamp [SETUP] \$Message"
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $LogPath -Value "$timestamp [SETUP] $Message"
+}
+
+function Invoke-MMTool {
+    param(
+        [Parameter(Mandatory)] [string[]] $Args,
+        [string] $Step
+    )
+    Write-Log "Running: ""$MultiToolPath $($Args -join ' ')"""
+    try {
+        & $MultiToolPath @Args
+        Write-Log "Step '$Step' exit code: $($LASTEXITCODE)"
+    }
+    catch {
+        Write-Log "Step '$Step' failed: $($_.Exception.Message)"
+        throw
+    }
 }
 
 Write-Log "=== Sunshine VDM SETUP started ==="
+Write-Log "Args: width=$ClientWidth height=$ClientHeight fps=$ClientFps hdr=$ClientHdr"
+Write-Log "Config: VMon=$VirtualMonitorId Physical=[$($PhysicalMonitorIds -join ',')] SetVirtualToMax=$SetVirtualToMax"
 
-if (-not (Test-Path \$MultiToolPath)) {
-    Write-Log "ERROR: MultiMonitorTool.exe not found at '\$MultiToolPath'. Skipping VDM setup."
-    exit 0
-}
-
-try {
-    if (-not (Test-Path \$NormalLayoutConfig)) {
-        Write-Log "Saving current monitor configuration to '\$NormalLayoutConfig'..."
-        & \$MultiToolPath /SaveConfig \$NormalLayoutConfig
-        Write-Log "Saved normal layout."
-    }
-}
-catch {
-    Write-Log "WARNING: Failed to save normal layout: \$($_.Exception.Message)"
+if (-not (Test-Path $MultiToolPath)) {
+    Write-Log "ERROR: MultiMonitorTool.exe not found at '$MultiToolPath'. Skipping VDM setup."
+    exit 1
 }
 
-try {
-    Write-Log "Enabling virtual monitor '\$VirtualMonitorId'..."
-    & \$MultiToolPath /enable \$VirtualMonitorId
-}
-catch {
-    Write-Log "WARNING: Failed to enable virtual monitor '\$VirtualMonitorId': \$($_.Exception.Message)"
-}
-
-foreach (\$monId in \$PhysicalMonitorIds) {
-    try {
-        Write-Log "Disabling physical monitor '\$monId'..."
-        & \$MultiToolPath /disable \$monId
-    }
-    catch {
-        Write-Log "WARNING: Failed to disable monitor '\$monId': \$($_.Exception.Message)"
-    }
+if (-not (Test-Path $NormalLayoutConfig)) {
+    Write-Log "Saving current monitor configuration to '$NormalLayoutConfig'..."
+    Invoke-MMTool -Args @('/SaveConfig', "$NormalLayoutConfig") -Step "SaveConfig"
+} else {
+    Write-Log "Normal layout config already exists at '$NormalLayoutConfig'; skipping save."
 }
 
-try {
-    Write-Log "Setting virtual monitor '\$VirtualMonitorId' as primary..."
-    & \$MultiToolPath /SetPrimary \$VirtualMonitorId
-}
-catch {
-    Write-Log "WARNING: Failed to set primary monitor to '\$VirtualMonitorId': \$($_.Exception.Message)"
+Invoke-MMTool -Args @('/enable', $VirtualMonitorId) -Step "EnableVirtual"
+
+foreach ($monId in $PhysicalMonitorIds) {
+    Invoke-MMTool -Args @('/disable', $monId) -Step "DisablePhysical-$monId"
 }
 
-if (\$SetVirtualToMax) {
-    try {
-        Write-Log "Setting max resolution on virtual monitor '\$VirtualMonitorId'..."
-        & \$MultiToolPath /SetMax \$VirtualMonitorId
-    }
-    catch {
-        Write-Log "WARNING: Failed to set max resolution on '\$VirtualMonitorId': \$($_.Exception.Message)"
-    }
+Invoke-MMTool -Args @('/SetPrimary', $VirtualMonitorId) -Step "SetPrimary"
+
+if ($SetVirtualToMax) {
+    Invoke-MMTool -Args @('/SetMax', $VirtualMonitorId) -Step "SetMax"
 }
 
 Write-Log "=== Sunshine VDM SETUP complete ==="
@@ -275,44 +312,60 @@ exit 0
 
     $teardownScript = @"
 # =========================
-# CONFIG – ADJUST IF NEEDED
+# CONFIG - ADJUST IF NEEDED
 # =========================
 
-\$MultiToolPath      = "C:\Sunshine-Tools\MultiMonitorTool.exe"
-\$LogPath            = "C:\Sunshine-Tools\sunvdm.log"
-\$NormalLayoutConfig = "C:\Sunshine-Tools\monitor_config.cfg"
+$MultiToolPath      = "C:\Sunshine-Tools\MultiMonitorTool.exe"
+$LogPath            = "C:\Sunshine-Tools\sunvdm.log"
+$NormalLayoutConfig = "C:\Sunshine-Tools\monitor_config.cfg"
 
 # =========================
 # END CONFIG
 # =========================
 
-\$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Continue"
 
 function Write-Log {
-    param([string]\$Message)
-    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path \$LogPath -Value "\$timestamp [TEARDOWN] \$Message"
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $LogPath -Value "$timestamp [TEARDOWN] $Message"
+}
+
+function Invoke-MMTool {
+    param(
+        [Parameter(Mandatory)] [string[]] $Args,
+        [string] $Step
+    )
+    Write-Log "Running: ""$MultiToolPath $($Args -join ' ')"""
+    try {
+        & $MultiToolPath @Args
+        Write-Log "Step '$Step' exit code: $($LASTEXITCODE)"
+    }
+    catch {
+        Write-Log "Step '$Step' failed: $($_.Exception.Message)"
+        throw
+    }
 }
 
 Write-Log "=== Sunshine VDM TEARDOWN started ==="
 
-if (-not (Test-Path \$MultiToolPath)) {
-    Write-Log "ERROR: MultiMonitorTool.exe not found at '\$MultiToolPath'. Cannot restore layout."
+if (-not (Test-Path $MultiToolPath)) {
+    Write-Log "ERROR: MultiMonitorTool.exe not found at '$MultiToolPath'. Cannot restore layout."
     exit 0
 }
 
-if (-not (Test-Path \$NormalLayoutConfig)) {
-    Write-Log "WARNING: Normal layout config '\$NormalLayoutConfig' not found. Nothing to restore."
+if (-not (Test-Path $NormalLayoutConfig)) {
+    Write-Log "WARNING: Normal layout config '$NormalLayoutConfig' not found. Nothing to restore."
     exit 0
 }
 
 try {
-    Write-Log "Restoring normal monitor configuration from '\$NormalLayoutConfig'..."
-    & \$MultiToolPath /LoadConfig \$NormalLayoutConfig
-    Write-Log "Normal layout restored."
+    Write-Log "Restoring normal monitor configuration from '$NormalLayoutConfig'..."
+    Invoke-MMTool -Args @('/LoadConfig', "$NormalLayoutConfig") -Step "LoadConfig"
+    Write-Log "Normal layout restore attempted."
 }
 catch {
-    Write-Log "WARNING: Failed to restore monitor layout: \$($_.Exception.Message)"
+    Write-Log "WARNING: Failed to restore monitor layout: $($_.Exception.Message)"
 }
 
 Write-Log "=== Sunshine VDM TEARDOWN complete ==="
@@ -552,8 +605,8 @@ function Nuclear-ReinstallSunshine {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "Uninstalling Sunshine via winget..." -ForegroundColor Cyan
         try {
-            # Newer winget builds reject accept-* flags; use force to ensure removal
-            winget uninstall --id LizardByte.Sunshine -e --silent --force
+            # Newer winget builds reject accept-* flags; use force/purge to ensure removal
+            winget uninstall --id LizardByte.Sunshine -e --silent --force --purge
         }
         catch {
             Write-Warning "winget uninstall failed: $($_.Exception.Message). You may need to uninstall Sunshine manually via Apps & Features."
