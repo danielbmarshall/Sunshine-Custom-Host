@@ -258,7 +258,9 @@ function Install-Tools {
 function Setup-VDMScripts {
     Write-Host "=== Generating VDM scripts (setup/teardown) ===" -ForegroundColor Cyan
 
-    $setupScript = @"
+    $physicalList = ($PhysicalMonitorIds -join '","')
+
+    $setupTemplate = @'
 param(
     [int] $ClientWidth,
     [int] $ClientHeight,
@@ -275,8 +277,8 @@ $LogPath             = "C:\Sunshine-Tools\sunvdm.log"
 $NormalLayoutConfig  = "C:\Sunshine-Tools\monitor_config.cfg"
 
 # IDs from installer config
-$VirtualMonitorId    = "$VirtualMonitorId"
-$PhysicalMonitorIds  = @("$(($PhysicalMonitorIds -join '","'))")
+$VirtualMonitorId    = "{VIRTUAL_MONITOR}"
+$PhysicalMonitorIds  = @("{PHYSICAL_MONITORS}")
 $SetVirtualToMax     = $true
 
 # =========================
@@ -337,9 +339,10 @@ if ($SetVirtualToMax) {
 
 Write-Log "=== Sunshine VDM SETUP complete ==="
 exit 0
-"@
+'@
+    $setupScript = $setupTemplate.Replace('{VIRTUAL_MONITOR}', $VirtualMonitorId).Replace('{PHYSICAL_MONITORS}', $physicalList)
 
-    $teardownScript = @"
+    $teardownScript = @'
 # =========================
 # CONFIG - ADJUST IF NEEDED
 # =========================
@@ -399,7 +402,7 @@ catch {
 
 Write-Log "=== Sunshine VDM TEARDOWN complete ==="
 exit 0
-"@
+'@
 
     Write-Config (Join-Path $ToolsDir 'setup_sunvdm.ps1')    $setupScript
     Write-Config (Join-Path $ToolsDir 'teardown_sunvdm.ps1') $teardownScript
