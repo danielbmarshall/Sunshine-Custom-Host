@@ -6,7 +6,7 @@
 
 **Prerequisites:** Windows 11 (Administrator Rights)
 
-Open **PowerShell** as Administrator and run this single command:
+Open **PowerShell 7 (`pwsh`)** (or Windows PowerShell) as Administrator and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/danielbmarshall/Sunshine-Custom-Host/main/install.ps1 | iex
@@ -48,18 +48,26 @@ Includes pre-configured, secure launchers for:
   * **EmulationStation** (ES-DE)
   * **Utilities:** Remote Sleep, Remote Restart, and an **Emergency Task Manager** (High Priority) to kill frozen games.
 
+### 🤫 Quiet + QoL Installer Defaults
+
+  * Sunshine installs via winget with quiet overrides to suppress "already installed" prompts.
+  * AutoHideMouseCursor is deployed to `C:\Sunshine-Tools` and added to Startup.
+  * VDM setup/teardown scripts log every MultiMonitorTool call for easier troubleshooting.
+
 -----
 
 ## ⚙️ Customization
 
-### Changing Resolution
+### Changing Virtual Display Resolution
 
-By default, the host is set to **4K (3840x2160) @ 60Hz**.
-To change this, edit **Line 108** of `install.ps1` in this repository before running:
+By default the virtual display is **4K (3840x2160) @ 60Hz**. To change it, edit the `$ClientWidth/$ClientHeight/$ClientFps/$ClientHdr` defaults in `install.ps1` (near the top of the script where virtual display IDs are set) before running.
+
+Example (1440p @ 120Hz):
 
 ```powershell
-# 1. HARDCODED TARGET (Robustness Fix)
-$width = 2560; $height = 1440; $fps = 120
+$ClientWidth = 2560
+$ClientHeight = 1440
+$ClientFps = 120
 ```
 
 ### Adding New Apps
@@ -76,12 +84,13 @@ You can add new games or apps by editing the `$Apps` list in `install.ps1`.
 \<summary\>\<b\>Click to see the installed toolchain\</b\>\</summary\>
 <br>
 
-The installer creates a hardened directory at `C:\Sunshine-Tools` containing the following toolchain:
+The installer creates a hardened directory at `C:\Sunshine-Tools` containing:
 
 | Tool | Purpose | Source |
 | :--- | :--- | :--- |
 | **AdvancedRun** | Bypass Sunshine permission blocks. | [NirSoft](https://www.nirsoft.net/utils/advanced_run.html) |
 | **MultiMonitorTool** | Save/Restore layouts & switch inputs. | [NirSoft](https://www.nirsoft.net/utils/multi_monitor_tool.html) |
+| **AutoHideMouseCursor** | Auto-hide the cursor on startup. | [SoftwareOK](https://www.softwareok.com/?seite=Freeware/AutoHideMouseCursor) |
 | **WindowsDisplayManager** | Precise resolution/HDR control module. | [Patrick-the-programmer](https://github.com/patrick-theprogrammer/WindowsDisplayManager) |
 | **Virtual Display Driver** | Creates a headless 4K/HDR dummy plug in software. | [MikeTheTech](https://github.com/itsmikethetech/Virtual-Display-Driver) |
 
