@@ -202,7 +202,36 @@ function Install-Tools {
     Expand-Archive -Path $ahZip -DestinationPath $ahTemp -Force
     $ahSource = Get-ChildItem -Path $ahTemp -Filter 'AutoHideMouseCursor.exe' -Recurse | Select-Object -First 1
     if ($ahSource) {
-        Copy-Item -Path $ahSource.FullName -Destination $ahExe -Force
+        $copied     = $false
+        $maxRetries = 2
+
+        while (-not $copied -and $maxRetries -ge 0) {
+            # Stop running instance so copy will not fail
+            Get-Process -Name 'AutoHideMouseCursor' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 300
+
+            try {
+                Copy-Item -Path $ahSource.FullName -Destination $ahExe -Force -ErrorAction Stop
+                $copied = $true
+            }
+            catch {
+                $maxRetries--
+                $msg = $_.Exception.Message
+
+                if ($maxRetries -lt 0) {
+                    Write-Warning "Failed to update AutoHideMouseCursor.exe after multiple attempts: $msg"
+                    Write-Host "Please exit AutoHideMouseCursor from the system tray, then rerun 'Install / Repair Sunshine-Tools' from the menu to finish the update." -ForegroundColor Yellow
+                    break
+                }
+
+                Write-Warning "AutoHideMouseCursor.exe is still running or locked: $msg"
+                $input = Read-Host "Close AutoHideMouseCursor manually (tray icon) then press Enter to retry, or type 'S' to skip updating it"
+                if ($input -match '^(s|skip)$') {
+                    Write-Warning "Skipping AutoHideMouseCursor update per user request. You can rerun Install / Repair Sunshine-Tools later."
+                    break
+                }
+            }
+        }
     }
     else {
         Write-Warning 'AutoHideMouseCursor.exe not found in extracted archive.'
