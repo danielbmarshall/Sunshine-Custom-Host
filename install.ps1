@@ -20,8 +20,9 @@ $SunshineCoversDir = "$SunshineConfigDir\covers"
 
 # Virtual Display / monitor layout config for VDM scripts
 # Adjust these IDs if needed (they match what you just tested)
-$VirtualMonitorId   = '3'
-$PhysicalMonitorIds = @('1','2')
+# Example here: GTX1050 outputs = 1,2; RTX3070 outputs = 3,5,6; Virtual = 7
+$VirtualMonitorId   = '7'
+$PhysicalMonitorIds = @('1','2','3','5','6')
 
 # App definitions: Exe|CommandLine|StartDir|RunAs|WindowState|WaitProcess
 #   RunAs:        1 = Current user, 3 = Run as Administrator
