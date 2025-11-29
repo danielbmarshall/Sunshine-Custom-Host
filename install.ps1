@@ -20,6 +20,93 @@ $ScriptRoot = if ($PSScriptRoot) {
     (Get-Location).Path
 }
 
+$DefaultMonitorLayoutTemplate = @'
+[Monitor0]
+Name=\\.\DISPLAY1
+MonitorID=MONITOR\DELA0E2\{4d36e96e-e325-11ce-bfc1-08002be10318}\0008
+SerialNumber=T4KPW7BI12VI
+BitsPerPixel=32
+Width=1080
+Height=1920
+DisplayFlags=0
+DisplayFrequency=60
+DisplayOrientation=1
+PositionX=-2160
+PositionY=0
+[Monitor1]
+Name=\\.\DISPLAY2
+MonitorID=MONITOR\DELA0E2\{4d36e96e-e325-11ce-bfc1-08002be10318}\0009
+SerialNumber=T4KPW7BI12YI
+BitsPerPixel=32
+Width=1080
+Height=1920
+DisplayFlags=0
+DisplayFrequency=60
+DisplayOrientation=1
+PositionX=-1080
+PositionY=0
+[Monitor2]
+Name=\\.\DISPLAY5
+MonitorID=MONITOR\DEL427B\{4d36e96e-e325-11ce-bfc1-08002be10318}\0004
+SerialNumber=C2WWDH3
+BitsPerPixel=32
+Width=3840
+Height=2160
+DisplayFlags=0
+DisplayFrequency=60
+DisplayOrientation=0
+PositionX=0
+PositionY=0
+[Monitor3]
+Name=\\.\DISPLAY6
+MonitorID=MONITOR\DELD0F9\{4d36e96e-e325-11ce-bfc1-08002be10318}\0005
+SerialNumber=4HB6X53
+BitsPerPixel=32
+Width=1440
+Height=2560
+DisplayFlags=0
+DisplayFrequency=59
+DisplayOrientation=1
+PositionX=3840
+PositionY=0
+[Monitor4]
+Name=\\.\DISPLAY7
+MonitorID=MONITOR\RTK01BF\{4d36e96e-e325-11ce-bfc1-08002be10318}\0002
+SerialNumber=L56051794302
+BitsPerPixel=32
+Width=720
+Height=1920
+DisplayFlags=0
+DisplayFrequency=60
+DisplayOrientation=1
+PositionX=6720
+PositionY=0
+[Monitor5]
+Name=\\.\DISPLAY8
+MonitorID=MONITOR\DELD0F9\{4d36e96e-e325-11ce-bfc1-08002be10318}\0006
+SerialNumber=C8MWS03
+BitsPerPixel=32
+Width=1440
+Height=2560
+DisplayFlags=0
+DisplayFrequency=59
+DisplayOrientation=3
+PositionX=5280
+PositionY=0
+[Monitor6]
+Name=\\.\DISPLAY9
+MonitorID=MONITOR\MTT1337\{4d36e96e-e325-11ce-bfc1-08002be10318}\0001
+SerialNumber=
+BitsPerPixel=0
+Width=0
+Height=0
+DisplayFlags=0
+DisplayFrequency=0
+DisplayOrientation=0
+PositionX=0
+PositionY=0
+'@
+
 # --- Global Paths / Config ----------------------------------------------------
 $ToolsDir          = 'C:\Sunshine-Tools'
 $SunshineConfigDir = 'C:\Program Files\Sunshine\config'
@@ -263,8 +350,8 @@ function Install-Tools {
         New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
     }
 
-    $defaultLayoutSource = Join-Path $ScriptRoot 'Default_Monitors.cfg'
     $defaultLayoutDest   = Join-Path $ToolsDir 'Default_Monitors.cfg'
+    $defaultLayoutSource = Join-Path $ScriptRoot 'Default_Monitors.cfg'
 
     $advancedRunExe = Join-Path $ToolsDir 'AdvancedRun.exe'
     if ((Test-Path $advancedRunExe) -and -not $Force) {
@@ -317,6 +404,15 @@ function Install-Tools {
         }
         catch {
             Write-Warning "Unable to copy default monitor configuration: $($_.Exception.Message)"
+        }
+    }
+    elseif (-not (Test-Path $defaultLayoutDest) -or $Force) {
+        try {
+            $DefaultMonitorLayoutTemplate | Set-Content -Encoding ASCII -Path $defaultLayoutDest
+            Write-Host "Default monitor configuration generated at $defaultLayoutDest" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Unable to generate default monitor configuration: $($_.Exception.Message)"
         }
     }
 
