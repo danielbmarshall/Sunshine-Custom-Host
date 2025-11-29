@@ -115,6 +115,44 @@ function Install-WingetApp {
     }
 }
 
+function Stop-ProcessesIfRunning {
+    param(
+        [Parameter(Mandatory)][string[]] $Names
+    )
+
+    foreach ($name in $Names) {
+        $procs = Get-Process -Name $name -ErrorAction SilentlyContinue
+        if (-not $procs) {
+            continue
+        }
+
+        Write-Host "Stopping running instance(s) of $name..." -ForegroundColor Yellow
+
+        foreach ($proc in $procs) {
+            try {
+                if ($proc.HasExited) {
+                    continue
+                }
+
+                if ($proc.MainWindowHandle -ne 0) {
+                    $null = $proc.CloseMainWindow()
+                    if (-not $proc.WaitForExit(4000)) {
+                        $proc.Kill()
+                    }
+                }
+                else {
+                    $proc.Kill()
+                }
+            }
+            catch {
+                Write-Warning "Unable to stop $name (PID $($proc.Id)): $($_.Exception.Message)"
+            }
+        }
+
+        Start-Sleep -Milliseconds 300
+    }
+}
+
 # --- Core actions -------------------------------------------------------------
 
 function Install-Sunshine {
@@ -146,6 +184,10 @@ function Install-Sunshine {
 }
 
 function Install-Tools {
+    param(
+        [switch]$Force
+    )
+
     Write-Host "=== Install / Repair Sunshine-Tools ===" -ForegroundColor Cyan
 
     if (-not (Test-Path $ToolsDir)) {
@@ -153,89 +195,106 @@ function Install-Tools {
         New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
     }
 
-    # AdvancedRun
-    Write-Host 'Downloading AdvancedRun...' -ForegroundColor Cyan
-    $advancedRunUrl  = 'https://www.nirsoft.net/utils/advancedrun-x64.zip'
-    $advancedRunZip  = Join-Path $env:TEMP 'advancedrun.zip'
-    $advancedRunTemp = Join-Path $env:TEMP 'advancedrun_extract'
-
-    Invoke-WebRequest -Uri $advancedRunUrl -OutFile $advancedRunZip -UseBasicParsing
-
-    if (Test-Path $advancedRunTemp) {
-        Remove-Item $advancedRunTemp -Recurse -Force
+    $advancedRunExe = Join-Path $ToolsDir 'AdvancedRun.exe'
+    if ((Test-Path $advancedRunExe) -and -not $Force) {
+        Write-Host "AdvancedRun already installed. Skipping download (use Force to reinstall)." -ForegroundColor Green
     }
-    New-Item -ItemType Directory -Force -Path $advancedRunTemp | Out-Null
+    else {
+        Write-Host 'Downloading AdvancedRun...' -ForegroundColor Cyan
+        Stop-ProcessesIfRunning -Names @('AdvancedRun')
+        $advancedRunUrl  = 'https://www.nirsoft.net/utils/advancedrun-x64.zip'
+        $advancedRunZip  = Join-Path $env:TEMP 'advancedrun.zip'
+        $advancedRunTemp = Join-Path $env:TEMP 'advancedrun_extract'
 
-    Expand-Archive -Path $advancedRunZip -DestinationPath $advancedRunTemp -Force
-    Copy-Item -Path (Join-Path $advancedRunTemp 'AdvancedRun.exe') -Destination (Join-Path $ToolsDir 'AdvancedRun.exe') -Force
+        Invoke-WebRequest -Uri $advancedRunUrl -OutFile $advancedRunZip -UseBasicParsing
 
-    # MultiMonitorTool
-    Write-Host 'Downloading MultiMonitorTool...' -ForegroundColor Cyan
-    $mmUrl  = 'https://www.nirsoft.net/utils/multimonitortool-x64.zip'
-    $mmZip  = Join-Path $env:TEMP 'multimonitortool.zip'
-    $mmTemp = Join-Path $env:TEMP 'multimonitortool_extract'
+        if (Test-Path $advancedRunTemp) {
+            Remove-Item $advancedRunTemp -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $advancedRunTemp | Out-Null
 
-    Invoke-WebRequest -Uri $mmUrl -OutFile $mmZip -UseBasicParsing
-
-    if (Test-Path $mmTemp) {
-        Remove-Item $mmTemp -Recurse -Force
+        Expand-Archive -Path $advancedRunZip -DestinationPath $advancedRunTemp -Force
+        Copy-Item -Path (Join-Path $advancedRunTemp 'AdvancedRun.exe') -Destination $advancedRunExe -Force -ErrorAction Stop
     }
-    New-Item -ItemType Directory -Force -Path $mmTemp | Out-Null
 
-    Expand-Archive -Path $mmZip -DestinationPath $mmTemp -Force
-    Copy-Item -Path (Join-Path $mmTemp 'MultiMonitorTool.exe') -Destination (Join-Path $ToolsDir 'MultiMonitorTool.exe') -Force
+    $mmExe = Join-Path $ToolsDir 'MultiMonitorTool.exe'
+    if ((Test-Path $mmExe) -and -not $Force) {
+        Write-Host "MultiMonitorTool already installed. Skipping download (use Force to reinstall)." -ForegroundColor Green
+    }
+    else {
+        Write-Host 'Downloading MultiMonitorTool...' -ForegroundColor Cyan
+        Stop-ProcessesIfRunning -Names @('MultiMonitorTool')
+        $mmUrl  = 'https://www.nirsoft.net/utils/multimonitortool-x64.zip'
+        $mmZip  = Join-Path $env:TEMP 'multimonitortool.zip'
+        $mmTemp = Join-Path $env:TEMP 'multimonitortool_extract'
 
-    # AutoHideMouseCursor
-    Write-Host 'Downloading AutoHideMouseCursor...' -ForegroundColor Cyan
-    $ahUrl   = 'https://www.softwareok.com/Download/AutoHideMouseCursor.zip'
-    $ahZip   = Join-Path $env:TEMP 'autohidemousecursor.zip'
-    $ahTemp  = Join-Path $env:TEMP 'autohidemousecursor_extract'
+        Invoke-WebRequest -Uri $mmUrl -OutFile $mmZip -UseBasicParsing
+
+        if (Test-Path $mmTemp) {
+            Remove-Item $mmTemp -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $mmTemp | Out-Null
+
+        Expand-Archive -Path $mmZip -DestinationPath $mmTemp -Force
+        Copy-Item -Path (Join-Path $mmTemp 'MultiMonitorTool.exe') -Destination $mmExe -Force -ErrorAction Stop
+    }
+
     $ahExe   = Join-Path $ToolsDir 'AutoHideMouseCursor.exe'
     $startup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\StartUp'
 
-    Invoke-WebRequest -Uri $ahUrl -OutFile $ahZip -UseBasicParsing
-
-    if (Test-Path $ahTemp) {
-        Remove-Item $ahTemp -Recurse -Force
+    if ((Test-Path $ahExe) -and -not $Force) {
+        Write-Host "AutoHideMouseCursor already installed. Skipping download (use Force to reinstall)." -ForegroundColor Green
     }
-    New-Item -ItemType Directory -Force -Path $ahTemp | Out-Null
+    else {
+        Write-Host 'Downloading AutoHideMouseCursor...' -ForegroundColor Cyan
+        $ahUrl  = 'https://www.softwareok.com/Download/AutoHideMouseCursor.zip'
+        $ahZip  = Join-Path $env:TEMP 'autohidemousecursor.zip'
+        $ahTemp = Join-Path $env:TEMP 'autohidemousecursor_extract'
 
-    Expand-Archive -Path $ahZip -DestinationPath $ahTemp -Force
-    $ahSource = Get-ChildItem -Path $ahTemp -Filter 'AutoHideMouseCursor.exe' -Recurse | Select-Object -First 1
-    if ($ahSource) {
-        $copied     = $false
-        $maxRetries = 2
+        Invoke-WebRequest -Uri $ahUrl -OutFile $ahZip -UseBasicParsing
 
-        while (-not $copied -and $maxRetries -ge 0) {
-            # Stop running instance so copy will not fail
-            Get-Process -Name 'AutoHideMouseCursor' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Milliseconds 300
+        if (Test-Path $ahTemp) {
+            Remove-Item $ahTemp -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $ahTemp | Out-Null
 
-            try {
-                Copy-Item -Path $ahSource.FullName -Destination $ahExe -Force -ErrorAction Stop
-                $copied = $true
-            }
-            catch {
-                $maxRetries--
-                $msg = $_.Exception.Message
+        Expand-Archive -Path $ahZip -DestinationPath $ahTemp -Force
+        $ahSource = Get-ChildItem -Path $ahTemp -Filter 'AutoHideMouseCursor.exe' -Recurse | Select-Object -First 1
+        if ($ahSource) {
+            $copied     = $false
+            $maxRetries = 2
 
-                if ($maxRetries -lt 0) {
-                    Write-Warning "Failed to update AutoHideMouseCursor.exe after multiple attempts: $msg"
-                    Write-Host "Please exit AutoHideMouseCursor from the system tray, then rerun 'Install / Repair Sunshine-Tools' from the menu to finish the update." -ForegroundColor Yellow
-                    break
+            while (-not $copied -and $maxRetries -ge 0) {
+                # Stop running instance so copy will not fail
+                Get-Process -Name 'AutoHideMouseCursor' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 300
+
+                try {
+                    Copy-Item -Path $ahSource.FullName -Destination $ahExe -Force -ErrorAction Stop
+                    $copied = $true
                 }
+                catch {
+                    $maxRetries--
+                    $msg = $_.Exception.Message
 
-                Write-Warning "AutoHideMouseCursor.exe is still running or locked: $msg"
-                $input = Read-Host "Close AutoHideMouseCursor manually (tray icon) then press Enter to retry, or type 'S' to skip updating it"
-                if ($input -match '^(s|skip)$') {
-                    Write-Warning "Skipping AutoHideMouseCursor update per user request. You can rerun Install / Repair Sunshine-Tools later."
-                    break
+                    if ($maxRetries -lt 0) {
+                        Write-Warning "Failed to update AutoHideMouseCursor.exe after multiple attempts: $msg"
+                        Write-Host "Please exit AutoHideMouseCursor from the system tray, then rerun 'Install / Repair Sunshine-Tools' from the menu to finish the update." -ForegroundColor Yellow
+                        break
+                    }
+
+                    Write-Warning "AutoHideMouseCursor.exe is still running or locked: $msg"
+                    $input = Read-Host "Close AutoHideMouseCursor manually (tray icon) then press Enter to retry, or type 'S' to skip updating it"
+                    if ($input -match '^(s|skip)$') {
+                        Write-Warning "Skipping AutoHideMouseCursor update per user request. You can rerun Install / Repair Sunshine-Tools later."
+                        break
+                    }
                 }
             }
         }
-    }
-    else {
-        Write-Warning 'AutoHideMouseCursor.exe not found in extracted archive.'
+        else {
+            Write-Warning 'AutoHideMouseCursor.exe not found in extracted archive.'
+        }
     }
 
     if (-not (Test-Path $startup)) {
@@ -670,7 +729,7 @@ function Nuclear-ReinstallSunshine {
     Install-Sunshine -Force
 
     Write-Host "Reinstalling tools, VDM scripts, and configs..." -ForegroundColor Cyan
-    Install-Tools
+    Install-Tools -Force
     Setup-VDMScripts
     Configure-AppsAndConfig
     Restart-Sunshine
@@ -709,7 +768,15 @@ function Show-MainMenu {
                     Install-Sunshine
                 }
             }
-            '2' { Install-Tools }
+            '2' {
+                $forceTools = Read-Host "Force reinstall of Sunshine-Tools even if files already exist? (y/N)"
+                if ($forceTools -match '^(y|yes)$') {
+                    Install-Tools -Force
+                }
+                else {
+                    Install-Tools
+                }
+            }
             '3' { Setup-VDMScripts }
             '4' { Configure-AppsAndConfig }
             '5' { Ensure-VDD }
