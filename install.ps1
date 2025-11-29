@@ -676,12 +676,24 @@ function Configure-AppsAndConfig {
         }
 
         # sunshine.conf
+        $globalPrepCommands = @()
+
+        $globalPrepCommands += [ordered]@{
+            do       = 'C:\Windows\System32\DisplaySwitch.exe /external'
+            undo     = 'C:\Windows\System32\DisplaySwitch.exe /internal'
+            elevated = $false
+        }
+
+        $globalPrepCommands += [ordered]@{
+            do       = 'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Sunshine-Tools\setup_sunvdm.ps1"'
+            undo     = 'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Sunshine-Tools\teardown_sunvdm.ps1"'
+            elevated = $true
+        }
+
+        $globalPrepJson = $globalPrepCommands | ConvertTo-Json -Depth 3 -Compress
+
         $confContent = @"
-global_prep_cmd = [{
-  "do":"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\Sunshine-Tools\\setup_sunvdm.ps1\"",
-  "undo":"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\Sunshine-Tools\\teardown_sunvdm.ps1\"",
-  "elevated":true
-}]
+global_prep_cmd = $globalPrepJson
 "@
         Write-Config "$SunshineConfigDir\sunshine.conf" $confContent
 
