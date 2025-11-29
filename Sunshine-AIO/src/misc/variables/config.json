@@ -1,0 +1,58 @@
+{
+	"Sunshine": {
+		"download_url": "https://github.com/LizardByte/Sunshine/releases/latest",
+		"download_pattern": "sunshine-windows-installer",
+		"downloaded_dir_path": "tools",
+		"install_dir": "C:\\Program Files\\Sunshine",
+		"service": "SunshineService",
+		"settings_url": "https://localhost:47990/config"
+	},
+	"VirtualDisplayDriver": {
+		"download_url": "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/latest",
+		"download_pattern": "VDD.Control",
+		"device_id": "Root\\IddSampleDriver",
+		"device_id_new": "Root\\MttVDD",
+		"driver_inf_old": "IddSampleDriver.inf",
+		"driver_inf_new": "MttVDD.inf"
+	},
+	"SunshineVirtualMonitor": {
+		"download_url": "https://github.com/Cynary/sunshine-virtual-monitor/archive/refs/heads/main.zip",
+		"download_pattern": "sunshine-virtual-monitor-main.zip",
+		"downloaded_dir_path": "tools\\sunshine-virtual-monitor-main"
+	},
+	"MultiMonitorTool": {
+		"download_url": "https://www.nirsoft.net/utils/multimonitortool-x64.zip",
+		"download_pattern": "multimonitortool-x64.zip",
+		"downloaded_dir_path": "tools\\multimonitortool-x64"
+	},
+	"AdvancedRun": {
+		"download_url": "https://www.nirsoft.net/utils/advancedrun.zip",
+		"download_pattern": "advancedrun.zip",
+		"downloaded_dir_path": "tools\\advancedrun",
+		"install_dir": "C:\\Sunshine-Tools\\AdvancedRun"
+	},
+	"AutoHideMouseCursor": {
+		"download_url": "https://www.nirsoft.net/utils/auto_hide_mouse_cursor.zip",
+		"download_pattern": "auto_hide_mouse_cursor.zip",
+		"downloaded_dir_path": "tools\\auto_hide_mouse_cursor",
+		"install_dir": "C:\\Sunshine-Tools\\AutoHideMouseCursor"
+	},
+	"VsyncToggle": {
+		"download_url": "https://github.com/xanderfrangos/vsync-toggle/releases/latest",
+		"download_pattern": "vsynctoggle",
+		"downloaded_dir_path": "tools"
+	},
+	"Playnite": {
+		"download_url": "https://playnite.link/download/PlayniteInstaller.exe",
+		"download_pattern": "PlayniteInstaller.exe",
+		"downloaded_dir_path": "tools",
+		"url": "playnite:"
+	},
+	"PlayniteWatcher": {
+		"download_url": "https://github.com/Nonary/PlayNiteWatcher/releases/latest",
+		"download_pattern": "PlayniteWatcher.zip",
+		"downloaded_dir_path": "tools",
+		"guide_url": "https://github.com/Nonary/PlayNiteWatcher#setup-instructions",
+		"addon_url": "playnite://playnite/installaddon/SunshineAppExport"
+	}
+}
