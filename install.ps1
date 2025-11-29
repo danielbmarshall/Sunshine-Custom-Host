@@ -12,6 +12,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$ScriptRoot = if ($PSScriptRoot) {
+    $PSScriptRoot
+} elseif ($MyInvocation?.MyCommand?.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+} else {
+    (Get-Location).Path
+}
 
 # --- Global Paths / Config ----------------------------------------------------
 $ToolsDir          = 'C:\Sunshine-Tools'
@@ -256,7 +263,7 @@ function Install-Tools {
         New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
     }
 
-    $defaultLayoutSource = Join-Path $PSScriptRoot 'Default_Monitors.cfg'
+    $defaultLayoutSource = Join-Path $ScriptRoot 'Default_Monitors.cfg'
     $defaultLayoutDest   = Join-Path $ToolsDir 'Default_Monitors.cfg'
 
     $advancedRunExe = Join-Path $ToolsDir 'AdvancedRun.exe'
