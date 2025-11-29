@@ -18,12 +18,6 @@ $ToolsDir          = 'C:\Sunshine-Tools'
 $SunshineConfigDir = 'C:\Program Files\Sunshine\config'
 $SunshineCoversDir = "$SunshineConfigDir\covers"
 
-# Virtual Display / monitor layout config for VDM scripts
-# Adjust these IDs if needed (they match what you just tested)
-# Example here: GTX1050 outputs = 1,2; RTX3070 outputs = 3,5,6; Virtual = 7
-$VirtualMonitorId   = '7'
-$PhysicalMonitorIds = @('1','2','3','5','6')
-
 # App definitions: Exe|CommandLine|StartDir|RunAs|WindowState|WaitProcess
 #   RunAs:        1 = Current user, 3 = Run as Administrator
 #   WindowState:  0 = Hidden, 1 = Normal, 3 = Maximized
@@ -64,6 +58,59 @@ function Write-Config {
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
     Write-Host "Updated: $(Split-Path $Path -Leaf)" -ForegroundColor Gray
+}
+
+function Get-MonitorLayoutFromCfg {
+    param(
+        [Parameter(Mandatory)] [string] $Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $null
+    }
+
+    $monitors = @()
+    $current = @{}
+
+    foreach ($line in Get-Content $Path) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed) {
+            continue
+        }
+
+        if ($trimmed -match '^\[') {
+            if ($current.Count) {
+                $monitors += [PSCustomObject]$current
+            }
+            $current = @{}
+            continue
+        }
+
+        if ($trimmed -match '^(?<key>[^=]+)=(?<value>.*)$') {
+            $current[$matches.key] = $matches.value
+        }
+    }
+
+    if ($current.Count) {
+        $monitors += [PSCustomObject]$current
+    }
+
+    if (-not $monitors) {
+        return $null
+    }
+
+    $virtual = $monitors | Where-Object {
+        $_.MonitorID -match 'MTT' -or $_.Name -match 'DISPLAY9'
+    } | Select-Object -First 1
+
+    $physical = $monitors | Where-Object {
+        $_.MonitorID -and ($_.MonitorID -notmatch 'MTT') -and $_.Name
+    }
+
+    return [PSCustomObject]@{
+        PhysicalDisplays = $physical | ForEach-Object { $_.Name }
+        VirtualDisplay   = $virtual?.Name
+    }
 }
 
 function Install-WingetApp {
@@ -195,6 +242,9 @@ function Install-Tools {
         New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
     }
 
+    $defaultLayoutSource = Join-Path $PSScriptRoot 'Default_Monitors.cfg'
+    $defaultLayoutDest   = Join-Path $ToolsDir 'Default_Monitors.cfg'
+
     $advancedRunExe = Join-Path $ToolsDir 'AdvancedRun.exe'
     if ((Test-Path $advancedRunExe) -and -not $Force) {
         Write-Host "AdvancedRun already installed. Skipping download (use Force to reinstall)." -ForegroundColor Green
@@ -237,6 +287,16 @@ function Install-Tools {
 
         Expand-Archive -Path $mmZip -DestinationPath $mmTemp -Force
         Copy-Item -Path (Join-Path $mmTemp 'MultiMonitorTool.exe') -Destination $mmExe -Force -ErrorAction Stop
+    }
+
+    if (Test-Path $defaultLayoutSource) {
+        try {
+            Copy-Item -Path $defaultLayoutSource -Destination $defaultLayoutDest -Force
+            Write-Host "Default monitor configuration copied to $defaultLayoutDest" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Unable to copy default monitor configuration: $($_.Exception.Message)"
+        }
     }
 
     $ahExe   = Join-Path $ToolsDir 'AutoHideMouseCursor.exe'
@@ -312,13 +372,45 @@ function Install-Tools {
         Write-Warning "Failed to create startup shortcut for AutoHideMouseCursor: $($_.Exception.Message)"
     }
 
+    $restoreShortcut = Join-Path $ToolsDir 'Restore Physical Monitors.lnk'
+    if (Test-Path $defaultLayoutDest) {
+        try {
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($restoreShortcut)
+            $shortcut.TargetPath = $mmExe
+            $shortcut.Arguments = "/LoadConfig `"$defaultLayoutDest`""
+            $shortcut.WorkingDirectory = $ToolsDir
+            $shortcut.Hotkey = "CTRL+ALT+HOME"
+            $shortcut.IconLocation = $mmExe
+            $shortcut.Save()
+            Write-Host "Ctrl+Alt+Home hotkey installed to restore your default monitor layout." -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to create restore hotkey shortcut: $($_.Exception.Message)"
+        }
+    }
+    else {
+        Write-Warning "Default monitor configuration not found, skipping restore hotkey setup."
+    }
+
     Write-Host "Tools installed under $ToolsDir." -ForegroundColor Green
 }
 
 function Setup-VDMScripts {
     Write-Host "=== Generating VDM scripts (setup/teardown) ===" -ForegroundColor Cyan
 
-    $physicalList = ($PhysicalMonitorIds -join '","')
+    $defaultLayoutPath  = Join-Path $ToolsDir 'Default_Monitors.cfg'
+    $fallbackLayoutPath = Join-Path $ToolsDir 'monitor_config.cfg'
+    $layoutData         = Get-MonitorLayoutFromCfg $defaultLayoutPath
+
+    if (-not $layoutData) {
+        $layoutData = Get-MonitorLayoutFromCfg $fallbackLayoutPath
+    }
+
+    $virtualMonitorRef = if ($layoutData?.VirtualDisplay) { $layoutData.VirtualDisplay } else { '7' }
+    $physicalMonitorRefs = if ($layoutData?.PhysicalDisplays) { $layoutData.PhysicalDisplays } else { @('1','2','3','5','6') }
+
+    $physicalList = ($physicalMonitorRefs | ForEach-Object { $_.Replace('"','\"') }) -join '","'
 
     $setupTemplate = @'
 param(
@@ -334,7 +426,9 @@ param(
 
 $MultiToolPath       = "C:\Sunshine-Tools\MultiMonitorTool.exe"
 $LogPath             = "C:\Sunshine-Tools\sunvdm.log"
-$NormalLayoutConfig  = "C:\Sunshine-Tools\monitor_config.cfg"
+$DefaultLayoutConfig = "{DEFAULT_LAYOUT_PATH}"
+$FallbackLayoutConfig = "{FALLBACK_LAYOUT_PATH}"
+$NormalLayoutConfig  = if (Test-Path $DefaultLayoutConfig) { $DefaultLayoutConfig } else { $FallbackLayoutConfig }
 
 # IDs from installer config
 $VirtualMonitorId    = "{VIRTUAL_MONITOR}"
@@ -378,7 +472,7 @@ if (-not (Test-Path $MultiToolPath)) {
     exit 1
 }
 
-if (-not (Test-Path $NormalLayoutConfig)) {
+if ($NormalLayoutConfig -eq $FallbackLayoutConfig -and -not (Test-Path $NormalLayoutConfig)) {
     Write-Log "Saving current monitor configuration to '$NormalLayoutConfig'..."
     Invoke-MMTool -Args @('/SaveConfig', "$NormalLayoutConfig") -Step "SaveConfig"
 } else {
@@ -405,7 +499,11 @@ if ($ClientWidth -gt 0 -and $ClientHeight -gt 0) {
 Write-Log "=== Sunshine VDM SETUP complete ==="
 exit 0
 '@
-    $setupScript = $setupTemplate.Replace('{VIRTUAL_MONITOR}', $VirtualMonitorId).Replace('{PHYSICAL_MONITORS}', $physicalList)
+    $setupScript = $setupTemplate.
+        Replace('{VIRTUAL_MONITOR}', $virtualMonitorRef).
+        Replace('{PHYSICAL_MONITORS}', $physicalList).
+        Replace('{DEFAULT_LAYOUT_PATH}', $defaultLayoutPath).
+        Replace('{FALLBACK_LAYOUT_PATH}', $fallbackLayoutPath)
 
     $teardownScript = @'
 # =========================
@@ -414,7 +512,11 @@ exit 0
 
 $MultiToolPath      = "C:\Sunshine-Tools\MultiMonitorTool.exe"
 $LogPath            = "C:\Sunshine-Tools\sunvdm.log"
-$NormalLayoutConfig = "C:\Sunshine-Tools\monitor_config.cfg"
+$DefaultLayoutConfig = "{DEFAULT_LAYOUT_PATH}"
+$FallbackLayoutConfig = "{FALLBACK_LAYOUT_PATH}"
+$NormalLayoutConfig  = if (Test-Path $DefaultLayoutConfig) { $DefaultLayoutConfig } else { $FallbackLayoutConfig }
+$VirtualMonitorId    = "{VIRTUAL_MONITOR}"
+$PhysicalMonitorIds  = @("{PHYSICAL_MONITORS}")
 
 # =========================
 # END CONFIG
@@ -474,6 +576,12 @@ try { Invoke-MMTool -Args @('/disable', $VirtualMonitorId) -Step "DisableVirtual
 Write-Log "=== Sunshine VDM TEARDOWN complete ==="
 exit 0
 '@
+
+    $teardownScript = $teardownScript.
+        Replace('{VIRTUAL_MONITOR}', $virtualMonitorRef).
+        Replace('{PHYSICAL_MONITORS}', $physicalList).
+        Replace('{DEFAULT_LAYOUT_PATH}', $defaultLayoutPath).
+        Replace('{FALLBACK_LAYOUT_PATH}', $fallbackLayoutPath)
 
     Write-Config (Join-Path $ToolsDir 'setup_sunvdm.ps1')    $setupScript
     Write-Config (Join-Path $ToolsDir 'teardown_sunvdm.ps1') $teardownScript
