@@ -113,6 +113,20 @@ function Get-MonitorLayoutFromCfg {
     }
 }
 
+function Convert-ToDisplayId {
+    param([string]$DisplayName)
+
+    if (-not $DisplayName) {
+        return $null
+    }
+
+    if ($DisplayName -match 'DISPLAY(\d+)') {
+        return $matches[1]
+    }
+
+    return $DisplayName
+}
+
 function Install-WingetApp {
     param(
         [Parameter(Mandatory)] [string] $Id,
@@ -407,8 +421,18 @@ function Setup-VDMScripts {
         $layoutData = Get-MonitorLayoutFromCfg $fallbackLayoutPath
     }
 
-    $virtualMonitorRef = if ($layoutData?.VirtualDisplay) { $layoutData.VirtualDisplay } else { '7' }
-    $physicalMonitorRefs = if ($layoutData?.PhysicalDisplays) { $layoutData.PhysicalDisplays } else { @('1','2','3','5','6') }
+    $virtualMonitorRef = Convert-ToDisplayId $layoutData?.VirtualDisplay
+    if (-not $virtualMonitorRef) {
+        $virtualMonitorRef = '7'
+    }
+
+    $physicalMonitorRefs = @()
+    if ($layoutData?.PhysicalDisplays) {
+        $physicalMonitorRefs = $layoutData.PhysicalDisplays | ForEach-Object { Convert-ToDisplayId $_ } | Where-Object { $_ }
+    }
+    if (-not $physicalMonitorRefs) {
+        $physicalMonitorRefs = @('1','2','3','5','6')
+    }
 
     $physicalList = ($physicalMonitorRefs | ForEach-Object { $_.Replace('"','\"') }) -join '","'
 
