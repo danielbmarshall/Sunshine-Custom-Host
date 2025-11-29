@@ -539,7 +539,7 @@ function Setup-VDMScripts {
 
     $physicalList = ($physicalMonitorRefs | ForEach-Object { $_.Replace('"','\"') }) -join '","'
 
-    $setupTemplate = @'
+$setupTemplate = @'
 param(
     [int] $ClientWidth,
     [int] $ClientHeight,
@@ -556,6 +556,7 @@ $LogPath             = "C:\Sunshine-Tools\sunvdm.log"
 $DefaultLayoutConfig = "{DEFAULT_LAYOUT_PATH}"
 $FallbackLayoutConfig = "{FALLBACK_LAYOUT_PATH}"
 $NormalLayoutConfig  = if (Test-Path $DefaultLayoutConfig) { $DefaultLayoutConfig } else { $FallbackLayoutConfig }
+$DisplaySwitchStabilizeSeconds = 3
 
 # IDs from installer config
 $VirtualMonitorId    = "{VIRTUAL_MONITOR}"
@@ -593,6 +594,11 @@ function Invoke-MMTool {
 Write-Log "=== Sunshine VDM SETUP started ==="
 Write-Log "Args: width=$ClientWidth height=$ClientHeight fps=$ClientFps hdr=$ClientHdr"
 Write-Log "Config: VMon=$VirtualMonitorId Physical=[$($PhysicalMonitorIds -join ',')] SetVirtualToMax=$SetVirtualToMax"
+
+if ($DisplaySwitchStabilizeSeconds -gt 0) {
+    Write-Log "Waiting $DisplaySwitchStabilizeSeconds second(s) for display switch to settle..."
+    Start-Sleep -Seconds $DisplaySwitchStabilizeSeconds
+}
 
 if (-not (Test-Path $MultiToolPath)) {
     Write-Log "ERROR: MultiMonitorTool.exe not found at '$MultiToolPath'. Skipping VDM setup."
@@ -642,6 +648,7 @@ $LogPath            = "C:\Sunshine-Tools\sunvdm.log"
 $DefaultLayoutConfig = "{DEFAULT_LAYOUT_PATH}"
 $FallbackLayoutConfig = "{FALLBACK_LAYOUT_PATH}"
 $NormalLayoutConfig  = if (Test-Path $DefaultLayoutConfig) { $DefaultLayoutConfig } else { $FallbackLayoutConfig }
+$DisplaySwitchStabilizeSeconds = 3
 $VirtualMonitorId    = "{VIRTUAL_MONITOR}"
 $PhysicalMonitorIds  = @("{PHYSICAL_MONITORS}")
 
@@ -674,6 +681,11 @@ function Invoke-MMTool {
 }
 
 Write-Log "=== Sunshine VDM TEARDOWN started ==="
+
+if ($DisplaySwitchStabilizeSeconds -gt 0) {
+    Write-Log "Waiting $DisplaySwitchStabilizeSeconds second(s) for display switch to settle..."
+    Start-Sleep -Seconds $DisplaySwitchStabilizeSeconds
+}
 
 if (-not (Test-Path $MultiToolPath)) {
     Write-Log "ERROR: MultiMonitorTool.exe not found at '$MultiToolPath'. Cannot restore layout."
